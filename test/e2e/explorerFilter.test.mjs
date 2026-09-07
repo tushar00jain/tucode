@@ -31,14 +31,19 @@ test('Explorer slash drives the actual view with path rooting, completion and re
 		assert.deepEqual(run.exit, { code: 0, signal: null });
 		assert.equal(unexpectedStderr(run.stderr), '');
 		assert.deepEqual(explorerRows(run.frames.boot).map(row => row.name).sort(), [...TOP_LEVEL].sort(), 'untouched Explorer must not gain filter chrome');
-		const names = name => explorerRows(run.frames[name]).map(row => row.name).filter(name => !name.startsWith('workspace'));
+		const names = name => {
+			const frame = run.frames[name];
+			const inputRow = paneTextLines(frame).findIndex(line => line.includes('▏'));
+			return explorerRows(frame, { skip: inputRow + 1 }).map(row => row.name);
+		};
 		assert.deepEqual(names('ranked'), ['beta', 'delta']);
 		assert.deepEqual(names('first'), names('ranked'));
 		assert.deepEqual(names('previous'), names('ranked'));
 		assert.deepEqual(names('cancel'), names('boot'));
-		assert.ok(paneTextLines(run.frames.first).some(line => line.includes('workspace/beta')));
-		assert.ok(paneTextLines(run.frames.previous).some(line => line.includes('workspace/delta')));
+		assert.ok(paneTextLines(run.frames.first).some(line => line.includes('beta') && !line.includes('workspace/')));
+		assert.ok(paneTextLines(run.frames.previous).some(line => line.includes('delta') && !line.includes('workspace/')));
 		assert.ok(ALPHA.files.every(file => names('alpha').includes(file)));
+		assert.ok(paneTextLines(run.frames.reopen).find(line => line.includes('▏')).includes('alpha/'), 'reopening preserves the entered path');
 		assert.deepEqual(names('untouched'), names('alpha'));
 		assert.ok(names('nested').includes('nested'));
 		assert.ok(!names('nested').includes(COMPACT_CHAIN.row), 'filtered tree must be uncompressed');

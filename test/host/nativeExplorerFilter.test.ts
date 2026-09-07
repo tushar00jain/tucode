@@ -149,11 +149,23 @@ test('single-folder Explorer prefill and compact ancestry survive cancel', async
 		f.send('outline-toggle', { id: compact.id, expanded: true }); await f.settle();
 		const before = f.snapshot().outlineRows.map((row: any) => [row.id, row.parentId, row.expanded]);
 		f.send('explorer-filter-open'); await f.settle();
-		assert.equal(f.snapshot().filter.value, 'alpha/');
+		assert.equal(f.snapshot().filter.value, '');
 		assert.ok(f.snapshot().outlineRows.some((row: any) => row.render.accessibleLabel === 'nested'));
-		f.send('explorer-filter-change', { value: 'alpha/ap' }); await f.settle();
+		f.send('explorer-filter-change', { value: 'ap' }); await f.settle();
 		f.send('explorer-filter-cancel'); await f.settle();
 		assert.deepEqual(f.snapshot().outlineRows.map((row: any) => [row.id, row.parentId, row.expanded]), before);
+		f.send('explorer-filter-change', { value: 'nested/' }); await f.settle();
+		f.send('explorer-filter-commit'); await f.settle();
+		assert.equal(f.snapshot().filter.value, 'nested/', 'Enter preserves the selected folder path');
+		f.send('explorer-filter-open'); await f.settle();
+		assert.equal(f.snapshot().filter.value, 'nested/', 'reopening preserves the path without the workspace prefix');
+		f.send('explorer-filter-change', { value: 'nested/deep/' }); await f.settle();
+		f.send('explorer-filter-commit'); await f.settle();
+		assert.equal(f.snapshot().filter.value, 'nested/deep/');
+		f.send('explorer-filter-open'); await f.settle();
+		f.send('explorer-filter-change', { value: '' }); await f.settle();
+		f.send('explorer-filter-cancel'); await f.settle();
+		assert.equal(f.snapshot().filter.value, 'nested/deep/', 'cancel restores the committed path');
 	} finally { f.native.dispose(); }
 });
 
@@ -161,7 +173,7 @@ test('Explorer cancellation tolerates a removed focused file and disposal during
 	const f = fixture(false);
 	try {
 		await f.native.start();
-		f.send('explorer-filter-change', { value: 'alpha/nested/deep/file' });
+		f.send('explorer-filter-change', { value: 'nested/deep/file' });
 		f.send('explorer-filter-commit'); await f.settle();
 		f.send('explorer-filter-open'); await f.settle();
 		f.deep.removeChild(f.file);
@@ -171,7 +183,7 @@ test('Explorer cancellation tolerates a removed focused file and disposal during
 		const released = new DeferredPromise<void>();
 		const original = f.alpha.fetchChildren;
 		f.alpha.fetchChildren = async sort => { await started.complete(); await released.p; return original(sort); };
-		f.send('explorer-filter-change', { value: 'alpha/nested/' });
+		f.send('explorer-filter-change', { value: 'nested/' });
 		await started.p;
 		f.native.dispose();
 		const count = f.messages.length;
@@ -197,7 +209,7 @@ test('native Explorer serializes upstream match ranges without dimming names or 
 			});
 		};
 		assert.ok(f.snapshot().outlineRows.every((row: any) => matches(row).length === 0));
-		f.send('explorer-filter-change', { value: 'alpha/ap' }); await f.settle();
+		f.send('explorer-filter-change', { value: 'ap' }); await f.settle();
 		const apple = f.snapshot().outlineRows.find((row: any) => row.render.accessibleLabel === 'apple.txt');
 		assert.deepEqual(matches(apple), [{ start: 0, end: 2 }]);
 		assert.equal(apple.selected, true);
@@ -205,19 +217,19 @@ test('native Explorer serializes upstream match ranges without dimming names or 
 		const ranked = f.snapshot().outlineRows.map((row: any) => [row.id, matches(row)]);
 		f.send('explorer-filter-complete', { direction: 'previous' }); await f.settle();
 		assert.deepEqual(f.snapshot().outlineRows.map((row: any) => [row.id, matches(row)]), ranked, 'completion keeps the typed query match ranges');
-		f.send('explorer-filter-change', { value: 'alpha/ne' }); await f.settle();
+		f.send('explorer-filter-change', { value: 'ne' }); await f.settle();
 		assert.equal(f.snapshot().outlineRows[0].render.accessibleLabel, 'nested');
 		assert.deepEqual(matches(f.snapshot().outlineRows[0]), [{ start: 0, end: 2 }]);
-		f.send('explorer-filter-change', { value: 'alpha/ne/' }); await f.settle();
+		f.send('explorer-filter-change', { value: 'ne/' }); await f.settle();
 		assert.equal(f.snapshot().outlineRows[0].render.accessibleLabel, 'deep');
 		assert.ok(f.snapshot().outlineRows.every((row: any) => matches(row).length === 0), 'a resolved path segment does not highlight its children');
-		f.send('explorer-filter-change', { value: 'alpha/café' }); await f.settle();
+		f.send('explorer-filter-change', { value: 'café' }); await f.settle();
 		const unicodeRow = f.snapshot().outlineRows.find((row: any) => row.id === unicode.getId());
 		const tree = (f.native as any).tree;
 		assert.deepEqual(matches(unicodeRow), createMatches(tree.getNode(unicode).filterData));
 		assert.deepEqual(matches(unicodeRow), [{ start: 2, end: 6 }], 'ranges are UTF-16 offsets after an astral character');
 		assert.equal(unicodeRow.render.runs.map((run: any) => run.text).join(''), unicode.name);
-		f.send('explorer-filter-change', { value: 'alpha/zzzzzz' }); await f.settle();
+		f.send('explorer-filter-change', { value: 'zzzzzz' }); await f.settle();
 		assert.equal(f.snapshot().outlineRows.length, 0);
 		f.send('explorer-filter-cancel'); await f.settle();
 		assert.ok(f.snapshot().outlineRows.every((row: any) => matches(row).length === 0));

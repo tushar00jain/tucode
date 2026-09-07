@@ -115,9 +115,8 @@ export class ExplorerRootController<TBox extends IViewRootBox> extends ViewRootC
 	 * rather than dived into; descending stays the explicit gesture it already was, which is typing
 	 * `foo/` or pressing `Enter` on `foo`.
 	 *
-	 * The path is `queryFor`'s, from the **workspace** rather than from a root — so the roots are a
-	 * query's first segment and one query can span them. At the top there is no path, so the box is
-	 * empty, which is the query that already means *show everything*.
+	 * The path is relative to the original tree input. At the top there is no path, so the box
+	 * is empty; committing a folder preserves its path for the next query.
 	 */
 	protected override opening(): string {
 		if (!this.restoring) {
@@ -128,7 +127,7 @@ export class ExplorerRootController<TBox extends IViewRootBox> extends ViewRootC
 		// `viewRootController.ts` says why a filtered tree is never compressed.
 		this.treeFn().updateOptions({ compressionEnabled: false });
 
-		return queryFor(this.rootFor(this.restoreRoot));
+		return queryFor(this.rootFor(this.restoreRoot), this.rootFor(undefined));
 	}
 
 	protected override cancelRoot(): Promise<void> {
@@ -174,7 +173,7 @@ export class ExplorerRootController<TBox extends IViewRootBox> extends ViewRootC
 
 		const { path, pattern } = splitQuery(query);
 		const session = this.sessionVersion;
-		const nodes = explorerNodes(this.explorerService.roots, this.explorerService.sortOrderConfiguration.sortOrder);
+		const nodes = explorerNodes(this.explorerService.roots, this.explorerService.sortOrderConfiguration.sortOrder, this.rootFor(undefined));
 		const { root, resolved } = await descend(nodes, path);
 		if (!this.box.isOpen || session !== this.sessionVersion || this._store.isDisposed) { return; }
 		const displayed = this.displayRoot;
@@ -224,7 +223,7 @@ export class ExplorerRootController<TBox extends IViewRootBox> extends ViewRootC
 
 		await this.view.setTreeInput(state);
 		if (!this.box.isOpen) {
-			this.box.value = queryFor(this.displayRoot);
+			this.box.value = queryFor(this.displayRoot, this.rootFor(undefined));
 			this.restoreDomFocus();
 		}
 		this.relayout();
