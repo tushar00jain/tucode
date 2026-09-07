@@ -1,6 +1,8 @@
 //! AppKit owns the UI. Wry owns only the editor WebView; backend work runs on Tokio.
 #![cfg(target_os = "macos")]
 
+mod asset;
+
 use objc2::{rc::Retained, MainThreadMarker};
 use objc2_app_kit::NSView;
 use objc2_web_kit::WKWebViewConfiguration;
@@ -12,11 +14,18 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CString},
     ptr::NonNull,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
-use tokio::{runtime::Runtime, sync::mpsc, task::JoinHandle};
-use tscode_app::{application::ApplicationBackend, rpc::Connection};
+use tokio::{
+    runtime::Runtime,
+    sync::{mpsc, OnceCell},
+    task::JoinHandle,
+};
+use tscode_app::{application::ApplicationBackend, channel::ChannelError, rpc::Connection};
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtMacos, WebViewExtMacOS};
 
 type Frames = mpsc::UnboundedSender<String>;
@@ -28,6 +37,7 @@ pub struct MacApp {
     runtime: Runtime,
     windows: mpsc::UnboundedSender<Open>,
     task: JoinHandle<()>,
+    application: Arc<OnceCell<Result<ApplicationBackend, ChannelError>>>,
 }
 struct Editor {
     view: WebView,
@@ -83,9 +93,11 @@ pub extern "C" fn tucode_app_start() -> *mut MacApp {
         }
     };
     let (windows, mut incoming) = mpsc::unbounded_channel::<Open>();
+    let application = Arc::new(OnceCell::new());
+    let backend = Arc::clone(&application);
     // Initialization starts with the app, before any WebView connects.
     let task = runtime.spawn(async move {
-        let application = ApplicationBackend::new().await;
+        let application = backend.get_or_init(ApplicationBackend::new).await;
         let mut sessions = tokio::task::JoinSet::new();
         while let Some(open) = incoming.recv().await {
             while sessions.try_join_next().is_some() {}
@@ -112,6 +124,7 @@ pub extern "C" fn tucode_app_start() -> *mut MacApp {
         runtime,
         windows,
         task,
+        application,
     }))
 }
 
@@ -124,6 +137,7 @@ pub unsafe extern "C" fn tucode_app_stop(app: *mut MacApp, finished: extern "C" 
             runtime,
             windows,
             task,
+            application: _,
         } = *app;
         drop(windows);
         runtime.block_on(async {
@@ -165,8 +179,20 @@ pub unsafe extern "C" fn tucode_editor_create(
         // Swift installs its final content layout after creation and moves this
         // WKWebView into the editor area. Use normal mode: Wry's child mode
         // overrides performKeyEquivalent and suppresses Command keys in WebKit.
+        let application = Arc::clone(&(*app).application);
+        let runtime = (*app).runtime.handle().clone();
         let view = WebViewBuilder::new()
             .with_webview_configuration(configuration)
+            .with_asynchronous_custom_protocol("asset".into(), move |_, request, responder| {
+                let application = Arc::clone(&application);
+                runtime.spawn(async move {
+                    let response = match application.get_or_init(ApplicationBackend::new).await {
+                        Ok(backend) => asset::respond(backend, request).await,
+                        Err(_) => asset::error_response(503),
+                    };
+                    responder.respond(response);
+                });
+            })
             .with_devtools(true)
             .with_ipc_handler(move |request| {
                 let _ = commands.send(request.into_body());

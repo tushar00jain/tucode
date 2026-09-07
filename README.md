@@ -1,5 +1,7 @@
 # tucode
 
+![tucode](tucode.png)
+
 Browse code and review changes in a terminal or a native Mac window.
 
 - **No browser in the terminal:** Node runs VS Code logic; the TUI paints native cells and ANSI.

@@ -1,6 +1,6 @@
 //! Application services outlive every window connection.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tscode_fs::{DiskFileSystemProvider, WorkspaceRoots};
@@ -20,6 +20,15 @@ pub struct ApplicationBackend {
 }
 
 impl ApplicationBackend {
+    /// Browser resource requests use the same authorization and disk provider as IPC.
+    pub async fn read_resource(&self, path: &Path) -> Result<Vec<u8>, ChannelError> {
+        let path = self.roots.validate(path).await.map_err(from_fs_error)?;
+        self.files
+            .read_file(&path, Default::default())
+            .await
+            .map_err(from_fs_error)
+    }
+
     pub async fn new() -> Result<Self, ChannelError> {
         // Keep the shared tscode/tucode profile location stable.
         let home = match std::env::var_os("TSCODE_USER_DATA_DIR") {

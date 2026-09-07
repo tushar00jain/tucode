@@ -1,6 +1,10 @@
 // Runs inside the real WKWebView only for the explicit foreground-test fixture.
 import { VSBuffer } from '../../src/vs/base/common/buffer.js';
 import { URI } from '../../src/vs/base/common/uri.js';
+import { FileAccess } from '../../src/vs/base/common/network.js';
+import { MarkdownString } from '../../src/vs/base/common/htmlContent.js';
+import { IMarkdownRendererService } from '../../src/vs/platform/markdown/browser/markdownRenderer.js';
+import { IWorkspaceContextService } from '../../src/vs/platform/workspace/common/workspace.js';
 import { IInstantiationService } from '../../src/vs/platform/instantiation/common/instantiation.js';
 import { IFileService } from '../../src/vs/platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../src/vs/platform/files/common/inMemoryFilesystemProvider.js';
@@ -25,6 +29,7 @@ async function waitUntil(predicate: () => boolean, message: string): Promise<voi
 }
 
 export async function runMacFrontendProbe(instantiation: IInstantiationService): Promise<void> {
+	await checkBrowserAssets(instantiation);
 	const [files, config, groups, editors] = instantiation.invokeFunction(a =>
 		[a.get(IFileService), a.get(IConfigurationService), a.get(IEditorGroupsService), a.get(IEditorService)] as const);
 	const originalSettings = ['editor.fontSize', 'files.autoSave', 'workbench.editor.enablePreview'].map(key =>
@@ -117,4 +122,35 @@ export async function runMacFrontendProbe(instantiation: IInstantiationService):
 		native.dispose(); registration.dispose(); provider.dispose();
 	}
 	await editors.openEditor({ resource: URI.parse('untitled:MAC_FRONTEND_PROBE_PASSED'), contents: 'MAC_FRONTEND_PROBE_PASSED', options: { pinned: true } });
+}
+
+async function checkBrowserAssets(instantiation: IInstantiationService): Promise<void> {
+	const [files, workspace, renderer] = instantiation.invokeFunction(a =>
+		[a.get(IFileService), a.get(IWorkspaceContextService), a.get(IMarkdownRendererService)] as const);
+	const root = URI.joinPath(workspace.getWorkspace().folders[0].uri, 'asset-probe');
+	const resource = URI.joinPath(root, 'logo # % café.svg');
+	const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="37" height="19"><rect width="37" height="19" fill="green"/></svg>';
+	await files.createFolder(root);
+	try {
+		await files.writeFile(resource, VSBuffer.fromString(svg));
+		const url = FileAccess.uriToBrowserUri(resource).toString();
+		const response = await fetch(url);
+		check(response.ok && await response.text() === svg, 'asset fetch returns original file bytes');
+		const image = new Image();
+		image.src = url;
+		await image.decode();
+		check(image.naturalWidth === 37 && image.naturalHeight === 19, 'direct image URL decodes in WebKit');
+		const markdown = new MarkdownString('![fixture](logo%20%23%20%25%20caf%C3%A9.svg)');
+		markdown.baseUri = URI.joinPath(root, 'README.md');
+		const rendered = renderer.render(markdown);
+		document.body.append(rendered.element);
+		try {
+			const embedded = rendered.element.querySelector('img');
+			check(embedded, 'Markdown produces an image element');
+			await embedded.decode();
+			check(embedded.naturalWidth === 37, 'relative Markdown image uses the same asset handler');
+		} finally { rendered.element.remove(); rendered.dispose(); }
+		const missing = await fetch(FileAccess.uriToBrowserUri(URI.joinPath(root, 'missing.png')).toString());
+		check(missing.status === 404, 'missing asset returns a resource error');
+	} finally { await files.del(root, { recursive: true }); }
 }

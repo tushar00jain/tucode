@@ -298,12 +298,14 @@ if (!injectedMacConfiguration?.repositoryRoot || !injectedMacConfiguration.resou
 const macConfiguration: IMacConfiguration = injectedMacConfiguration;
 
 // CSS fonts and images are fetched by WebKit, not IFileService. Serve only bundled
-// app resources from the same origin as the editor; document URIs stay unchanged.
+// app resources from the editor origin; other local resources use Wry's Rust asset handler.
 const bundledResourcePrefix = URI.file(macConfiguration.resourceRoot).path.replace(/\/+$/, '') + '/';
 FileAccess.setBrowserUriMapper(uri => uri.scheme === Schemas.file && !uri.authority && uri.path.startsWith(bundledResourcePrefix)
 	? URI.from({ scheme: location.protocol.slice(0, -1), authority: location.host,
 		path: '/app-resource/' + uri.path.slice(bundledResourcePrefix.length), query: uri.query, fragment: uri.fragment })
-	: undefined);
+	: uri.scheme === Schemas.file && !uri.authority
+		? uri.with({ scheme: 'asset', authority: 'localhost' })
+		: undefined);
 
 import './editor/upstreamEditorServices.js';
 import { PlatformEditorLayout } from './editor/platformEditorLayout.js';

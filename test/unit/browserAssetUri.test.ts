@@ -23,7 +23,7 @@ test('embedded asset mapping is used for browser loads without changing document
 	assert.notEqual(FileAccess.uriToBrowserUri(font).scheme, 'tucode');
 });
 
-test('Mac bundle mapping handles directory trailing slashes and leaves other files alone', () => {
+test('Mac maps bundle resources and local assets without changing document URIs', () => {
 	// Execute the small, DOM-independent registration from the actual Mac bootstrap.
 	const source = readFileSync(new URL('../../src/macWebMain.ts', import.meta.url), 'utf8');
 	const file = ts.createSourceFile('macWebMain.ts', source, ts.ScriptTarget.Latest, true);
@@ -45,6 +45,12 @@ test('Mac bundle mapping handles directory trailing slashes and leaves other fil
 				'tucode://app/app-resource/resources/extensions/theme-seti/icons/seti.woff');
 			const outside = URI.file('/bundle/App Resources/app-other/private.txt');
 			assert.notEqual(FileAccess.uriToBrowserUri(outside).scheme, 'tucode');
+			const image = URI.file('/workspace/images/logo # % café.png');
+			assert.equal(FileAccess.uriToBrowserUri(image).toString(),
+				'asset://localhost/workspace/images/logo%20%23%20%25%20caf%C3%A9.png');
+			assert.equal(FileAccess.uriToFileUri(image).toString(), image.toString());
+			const remote = URI.parse('https://example.com/image.png');
+			assert.equal(FileAccess.uriToBrowserUri(remote), remote);
 		} finally { FileAccess.setBrowserUriMapper(undefined); }
 	}
 });

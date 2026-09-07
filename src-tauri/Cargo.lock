@@ -3148,8 +3148,10 @@ dependencies = [
  "objc2-web-kit",
  "raw-window-handle",
  "serde_json",
+ "tempfile",
  "tokio",
  "tscode-app",
+ "url",
  "wry",
 ]
 
