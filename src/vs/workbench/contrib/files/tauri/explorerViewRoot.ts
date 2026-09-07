@@ -103,9 +103,8 @@ export class ExplorerViewRoot extends ViewRootController<ExplorerItem, ViewRootB
 	 * rather than dived into; descending stays the explicit gesture it already was, which is typing
 	 * `foo/` or pressing `Enter` on `foo`.
 	 *
-	 * The path is `queryFor`'s, from the **workspace** rather than from a root — so the roots are a
-	 * query's first segment and one query can span them. At the top there is no path, so the box is
-	 * empty, which is the query that already means *show everything*.
+	 * The path is relative to the original tree input. At the top there is no path, so the box
+	 * is empty; committing a folder preserves its path for the next query.
 	 */
 	protected override opening(): string {
 		this.restoreRoot = this.viewRoot;
@@ -114,7 +113,7 @@ export class ExplorerViewRoot extends ViewRootController<ExplorerItem, ViewRootB
 		this.treeFn().updateOptions({ compressionEnabled: false });
 		this.treeContainer.style.height = `calc(100% - ${ViewRootBox.HEIGHT}px)`;
 
-		return queryFor(this.displayRoot);
+		return queryFor(this.displayRoot, this.rootFor(undefined));
 	}
 
 	protected override cancelRoot(): Promise<void> {
@@ -149,7 +148,7 @@ export class ExplorerViewRoot extends ViewRootController<ExplorerItem, ViewRootB
 		}
 
 		const { path, pattern } = splitQuery(query);
-		const nodes = explorerNodes(this.explorerService.roots, this.explorerService.sortOrderConfiguration.sortOrder);
+		const nodes = explorerNodes(this.explorerService.roots, this.explorerService.sortOrderConfiguration.sortOrder, this.rootFor(undefined));
 		const { root, resolved } = await descend(nodes, path);
 		const displayed = this.displayRoot;
 

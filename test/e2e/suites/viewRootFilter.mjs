@@ -18,9 +18,6 @@ import { NEEDLES, REPOSITORIES, SIBLING_FILES, TOP_LEVEL } from '../lib/fixture.
 import { closeViewRootFilter, focusedElement, focusPane, focusSearchQueryBox, openViewRootFilter, paneRows, textSearch, viewRootBox, viewRootBoxReads } from '../lib/probes.mjs';
 import { waitFor } from '../lib/wait.mjs';
 
-/** The workspace folder's own name, which is the first segment of every explorer path query. */
-const WORKSPACE = 'workspace';
-
 const sorted = names => [...names].sort();
 
 /**
@@ -65,7 +62,7 @@ async function withViewRootFilter(page, name, body) {
  * `completeQuery`'s own answer, so the box still names where the pane is rooted and the next `/`
  * typed descends from there rather than from the top.
  */
-const completedTo = name => `${WORKSPACE}/${name}`;
+const completedTo = name => name;
 
 /**
  * A result row from the file the query is *not* narrowed to — present before a `/` query, gone
@@ -98,13 +95,12 @@ async function assertResultsRestored(page, before) {
 export default function registerViewRootFilterSuite(context) {
 	describe('`/` in the explorer', () => {
 		// **It opens on the folder being looked at — the view root — rather than on the folder under
-		// the cursor**, so it moves nothing: the rows are the rows that were already there. The path
-		// is from the *workspace* rather than from a root, which is what lets one query span roots.
+		// the cursor**, so it moves nothing. Paths are relative to the original tree input.
 		it('opens prefilled with the folder being looked at, and moves nothing', async () => {
 			const page = context.page;
 			await atTopLevel(page);
 			await withViewRootFilter(page, 'explorer', async box => {
-				assert.equal(box.value, `${WORKSPACE}/`);
+				assert.equal(box.value, '');
 				// The next thing typed has to extend the path the box opened on, which is only true
 				// if the caret is behind it.
 				assert.equal(box.caret, box.value.length, 'the caret is not at the end of the prefilled path');
@@ -128,7 +124,7 @@ export default function registerViewRootFilterSuite(context) {
 			await page.keyboard.type('ea');
 			// The typed query, read back before the rows are: a box that did not take the keystrokes
 			// and a query that took them and ranked nothing are two different failures.
-			assert.equal((await viewRootBox(page)).value, `${WORKSPACE}/ea`);
+			assert.equal((await viewRootBox(page)).value, 'ea');
 
 			const rows = await paneRows(page, 'explorer', current => current.length === ranked.length);
 			assert.deepEqual(rows.map(row => row.name), ranked);
@@ -187,7 +183,7 @@ export default function registerViewRootFilterSuite(context) {
 			// And back to the top, through the same two gestures: an empty query is the root of the
 			// workspace, and `Enter` with nothing typed commits where the pane already is.
 			await withViewRootFilter(page, 'explorer', async box => {
-				assert.equal(box.value, `${WORKSPACE}/${SIBLING_FILES.folder}/`);
+				assert.equal(box.value, `${SIBLING_FILES.folder}/`);
 				await page.keyboard.press('Control+a');
 				await page.keyboard.press('Backspace');
 				await paneRows(page, 'explorer', isTopLevel);

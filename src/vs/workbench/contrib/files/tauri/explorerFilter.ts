@@ -42,30 +42,30 @@ export const explorerItemAccessor: IItemAccessor<ExplorerItem> = {
 };
 
 /**
- * What a path segment descends over: the folders inside one, and the workspace's roots at the top.
+ * Path segments descend from the original tree input: a folder's contents or a list of roots.
  * `fetchChildren` is the explorer model's own directory read, so exactly the folders being looked at
  * are loaded — which is the whole reason `/` re-roots rather than expanding a tree whose deeper rows
  * are not there yet.
  */
-export function explorerNodes(roots: readonly ExplorerItem[], sortOrder: SortOrder): INodes<ExplorerItem> {
+export function explorerNodes(roots: readonly ExplorerItem[], sortOrder: SortOrder, base?: ExplorerItem): INodes<ExplorerItem> {
 	return {
-		children: async item => item ? (await item.fetchChildren(sortOrder)).filter(child => child.isDirectory) : roots,
+		children: async (item = base) => item ? (await item.fetchChildren(sortOrder)).filter(child => child.isDirectory) : roots,
 		name: item => item.name
 	};
 }
 
 /**
- * The query that names `item` and filters nothing out of it, which is what `/` opens with — every
- * segment of the path from the workspace, whose own children are the roots.
+ * The query that names `item` relative to the original tree input. Preserve the selected path,
+ * omitting the base folder's name when the tree already displays its contents.
  */
-export function queryFor(item: ExplorerItem | undefined): string {
+export function queryFor(item: ExplorerItem | undefined, base?: ExplorerItem): string {
 	if (!item) {
 		return '';
 	}
 
-	const inside = relativePath(item.root.resource, item.resource);
+	const inside = relativePath(base?.resource ?? item.root.resource, item.resource);
 
-	return pathQuery(inside ? [item.root.name, ...inside.split('/')] : [item.root.name]);
+	return pathQuery([...(base ? [] : [item.root.name]), ...(inside ? inside.split('/') : [])]);
 }
 
 /** What an explorer row is matched on, and where two matched rows sit — both `Ctrl+P`'s answers. */
