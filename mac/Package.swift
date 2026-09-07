@@ -3,8 +3,8 @@
 import PackageDescription
 import Foundation
 
-let rustLibraries = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-	.appendingPathComponent("../src-tauri/target/dev-small").standardizedFileURL.path
+let rustTarget = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+	.appendingPathComponent("../src-tauri/target").standardizedFileURL.path
 
 let package = Package(
 	name: "TucodeMac",
@@ -16,9 +16,10 @@ let package = Package(
 		.systemLibrary(name: "CTucode"),
 		.executableTarget(name: "TucodeMac", dependencies: ["CTucode"], linkerSettings: [
 			.linkedLibrary("tscode_mac"),
-			.unsafeFlags(["-L", rustLibraries,
-				"-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
-				"-Xlinker", "-rpath", "-Xlinker", rustLibraries])
+			.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
+			.unsafeFlags(["-L", rustTarget + "/dev-small",
+				"-Xlinker", "-rpath", "-Xlinker", rustTarget + "/dev-small"], .when(configuration: .debug)),
+			.unsafeFlags(["-L", rustTarget + "/release"], .when(configuration: .release))
 		]),
 		.testTarget(name: "TucodeMacTests", dependencies: ["TucodeMac"])
 	],

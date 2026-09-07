@@ -30,7 +30,7 @@ export default defineConfig({
 	},
 	define: {
 		'globalThis._VSCODE_PRODUCT_JSON': productJson,
-		'globalThis._VSCODE_PACKAGE_JSON': JSON.stringify({ version: packageJson.version })
+		'globalThis._VSCODE_PACKAGE_JSON': JSON.stringify({ version: process.env.TUCODE_RELEASE_VERSION || packageJson.version })
 	},
 	resolve: {
 		alias: [
