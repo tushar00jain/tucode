@@ -251,8 +251,14 @@ class SCMTreeDragAndDrop implements ITreeDragAndDrop<TreeElement> {
 	dispose(): void { }
 }
 
+/** Frontends can supply the commit editor without replacing the SCM view or its tree. */
+export type ISCMInputWidget = Pick<SCMInputWidget, 'input' | 'selections' | 'focus' | 'hasFocus' | 'getContentHeight' | 'onDidChangeContentHeight' | 'layout' | 'clearValidation' | 'dispose'>;
+export interface ISCMViewPaneOptions extends IViewPaneOptions {
+	readonly createInputWidget?: (container: HTMLElement, overflow: HTMLElement) => ISCMInputWidget;
+}
+
 interface InputTemplate {
-	readonly inputWidget: SCMInputWidget;
+	readonly inputWidget: ISCMInputWidget;
 	inputWidgetHeight: number;
 	readonly elementDisposables: DisposableStore;
 	readonly templateDisposable: IDisposable;
@@ -265,7 +271,7 @@ class InputRenderer implements ICompressibleTreeRenderer<ISCMInput, FuzzyScore, 
 	static readonly TEMPLATE_ID = 'input';
 	get templateId(): string { return InputRenderer.TEMPLATE_ID; }
 
-	private inputWidgets = new Map<ISCMInput, SCMInputWidget>();
+	private inputWidgets = new Map<ISCMInput, ISCMInputWidget>();
 	private contentHeights = new WeakMap<ISCMInput, number>();
 	private editorSelections = new WeakMap<ISCMInput, Selection[]>();
 
@@ -273,6 +279,7 @@ class InputRenderer implements ICompressibleTreeRenderer<ISCMInput, FuzzyScore, 
 		private outerLayout: ISCMLayout,
 		private overflowWidgetsDomNode: HTMLElement,
 		private updateHeight: (input: ISCMInput, height: number) => void,
+		private createInputWidget: ISCMViewPaneOptions['createInputWidget'],
 		@IInstantiationService private instantiationService: IInstantiationService
 	) { }
 
@@ -282,7 +289,7 @@ class InputRenderer implements ICompressibleTreeRenderer<ISCMInput, FuzzyScore, 
 
 		const templateDisposable = new DisposableStore();
 		const inputElement = append(container, $('.scm-input'));
-		const inputWidget = this.instantiationService.createInstance(SCMInputWidget, inputElement, this.overflowWidgetsDomNode);
+		const inputWidget = this.createInputWidget?.(inputElement, this.overflowWidgetsDomNode) ?? this.instantiationService.createInstance(SCMInputWidget, inputElement, this.overflowWidgetsDomNode);
 		templateDisposable.add(inputWidget);
 
 		return { inputWidget, inputWidgetHeight: InputRenderer.DEFAULT_HEIGHT, elementDisposables: new DisposableStore(), templateDisposable };
@@ -359,7 +366,7 @@ class InputRenderer implements ICompressibleTreeRenderer<ISCMInput, FuzzyScore, 
 		return (this.contentHeights.get(input) ?? InputRenderer.DEFAULT_HEIGHT) + 10;
 	}
 
-	getRenderedInputWidget(input: ISCMInput): SCMInputWidget | undefined {
+	getRenderedInputWidget(input: ISCMInput): ISCMInputWidget | undefined {
 		return this.inputWidgets.get(input);
 	}
 
@@ -388,7 +395,7 @@ interface ResourceGroupTemplate {
 	readonly disposables: IDisposable;
 }
 
-class ResourceGroupRenderer implements ICompressibleTreeRenderer<ISCMResourceGroup, FuzzyScore, ResourceGroupTemplate> {
+export class ResourceGroupRenderer implements ICompressibleTreeRenderer<ISCMResourceGroup, FuzzyScore, ResourceGroupTemplate> {
 
 	static readonly TEMPLATE_ID = 'resource group';
 	get templateId(): string { return ResourceGroupRenderer.TEMPLATE_ID; }
@@ -465,7 +472,7 @@ interface RenderedResourceData {
 	readonly iconResource: ISCMResource | undefined;
 }
 
-class RepositoryPaneActionRunner extends ActionRunner {
+export class RepositoryPaneActionRunner extends ActionRunner {
 
 	constructor(private getSelectedResources: () => (ISCMResourceGroup | ISCMResource | IResourceNode<ISCMResource, ISCMResourceGroup>)[]) {
 		super();
@@ -486,7 +493,7 @@ class RepositoryPaneActionRunner extends ActionRunner {
 	}
 }
 
-class ResourceRenderer implements ICompressibleTreeRenderer<ISCMResource | IResourceNode<ISCMResource, ISCMResourceGroup>, FuzzyScore | LabelFuzzyScore, ResourceTemplate> {
+export class ResourceRenderer implements ICompressibleTreeRenderer<ISCMResource | IResourceNode<ISCMResource, ISCMResourceGroup>, FuzzyScore | LabelFuzzyScore, ResourceTemplate> {
 
 	static readonly TEMPLATE_ID = 'resource';
 	get templateId(): string { return ResourceRenderer.TEMPLATE_ID; }
@@ -701,7 +708,7 @@ class ListDelegate implements IListVirtualDelegate<TreeElement> {
 	}
 }
 
-class SCMTreeCompressionDelegate implements ITreeCompressionDelegate<TreeElement> {
+export class SCMTreeCompressionDelegate implements ITreeCompressionDelegate<TreeElement> {
 
 	isIncompressible(element: TreeElement): boolean {
 		if (ResourceTree.isResourceNode(element)) {
@@ -713,7 +720,7 @@ class SCMTreeCompressionDelegate implements ITreeCompressionDelegate<TreeElement
 
 }
 
-class SCMTreeFilter implements ITreeFilter<TreeElement> {
+export class SCMTreeFilter implements ITreeFilter<TreeElement> {
 
 	filter(element: TreeElement): boolean {
 		if (isSCMResourceGroup(element)) {
@@ -859,7 +866,7 @@ function getSCMResourceId(element: TreeElement): string {
 	}
 }
 
-class SCMResourceIdentityProvider implements IIdentityProvider<TreeElement> {
+export class SCMResourceIdentityProvider implements IIdentityProvider<TreeElement> {
 
 	getId(element: TreeElement): string {
 		return getSCMResourceId(element);
@@ -1368,6 +1375,10 @@ export class SCMViewPane extends ViewPane {
 	private tree!: WorkbenchCompressibleAsyncDataTree<ISCMViewService, TreeElement, FuzzyScore>;
 	private viewRoot!: SCMViewRoot;
 
+	get treeWidget() { return this.tree; }
+	get rootController() { return this.viewRoot; }
+	whenSettled(): Promise<void> { return this.treeOperationSequencer.queue(async () => {}); }
+
 	private listLabels!: ResourceLabels;
 	private inputRenderer!: InputRenderer;
 	private actionButtonRenderer!: ActionButtonRenderer;
@@ -1436,7 +1447,7 @@ export class SCMViewPane extends ViewPane {
 	private readonly disposables = new DisposableStore();
 
 	constructor(
-		options: IViewPaneOptions,
+		private readonly options: ISCMViewPaneOptions,
 		@ICommandService private readonly commandService: ICommandService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IMenuService private readonly menuService: IMenuService,
@@ -1600,7 +1611,7 @@ export class SCMViewPane extends ViewPane {
 				this.tree.updateElementHeight(input, height);
 			}
 			catch { }
-		});
+		}, this.options.createInputWidget);
 		this.actionButtonRenderer = this.instantiationService.createInstance(ActionButtonRenderer);
 
 		this.listLabels = this.instantiationService.createInstance(ResourceLabels, { onDidChangeVisibility: this.onDidChangeBodyVisibility });
@@ -1633,6 +1644,8 @@ export class SCMViewPane extends ViewPane {
 			this.viewRoot.dataSource,
 			{
 				horizontalScrolling: false,
+				// The shared view-root filter owns matching; stock find would replace its scores.
+				findWidgetEnabled: false,
 				setRowLineHeight: false,
 				transformOptimization: false,
 				filter: this.viewRoot.filter,
@@ -2191,7 +2204,7 @@ export class SCMViewPane extends ViewPane {
 	}
 }
 
-class SCMTreeDataSource extends Disposable implements IAsyncDataSource<ISCMViewService, TreeElement> {
+export class SCMTreeDataSource extends Disposable implements IAsyncDataSource<ISCMViewService, TreeElement> {
 	constructor(
 		private readonly viewMode: () => ViewMode,
 		@IConfigurationService private readonly configurationService: IConfigurationService,

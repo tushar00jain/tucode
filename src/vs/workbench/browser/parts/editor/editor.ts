@@ -255,6 +255,9 @@ export interface IEditorGroupTitleHeight {
 
 export interface IEditorGroupViewOptions {
 
+	/** Whether to construct the empty-group watermark. Defaults to true. */
+	readonly showWatermark?: boolean;
+
 	/**
 	 * Whether the editor group should receive keyboard focus
 	 * after creation or not.

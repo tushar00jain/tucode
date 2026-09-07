@@ -18,7 +18,7 @@ import { ElementsDragAndDropData, ListViewTargetSector } from '../list/listView.
 import { IListAccessibilityProvider, IListOptions, IListStyles, isActionItem, isButton, isMonacoCustomToggle, isMonacoEditor, isStickyScrollContainer, isStickyScrollElement, List, MouseController, TypeNavigationMode } from '../list/listWidget.js';
 import { IToggleStyles, Toggle, unthemedToggleStyles } from '../toggle/toggle.js';
 import { getVisibleState, isFilterResult } from './indexTreeModel.js';
-import { ICollapseStateChangeEvent, ITreeContextMenuEvent, ITreeDragAndDrop, ITreeEvent, ITreeFilter, ITreeModel, ITreeModelSpliceEvent, ITreeMouseEvent, ITreeNavigator, ITreeNode, ITreeRenderer, TreeDragOverBubble, TreeError, TreeFilterResult, TreeMouseEventTarget, TreeVisibility } from './tree.js';
+import { ICollapseStateChangeEvent, ITreeContextMenuEvent, ITreeDragAndDrop, ITreeEvent, ITreeFilter, ITreeListSpliceData, ITreeModel, ITreeModelSpliceEvent, ITreeMouseEvent, ITreeNavigator, ITreeNode, ITreeRenderer, TreeDragOverBubble, TreeError, TreeFilterResult, TreeMouseEventTarget, TreeVisibility } from './tree.js';
 import { Action } from '../../../common/actions.js';
 import { distinct, equals, insertInto, range } from '../../../common/arrays.js';
 import { Delayer, disposableTimeout, timeout } from '../../../common/async.js';
@@ -2633,11 +2633,19 @@ export abstract class AbstractTree<T, TFilterData, TRef> implements IDisposable 
 	private readonly onDidSwapModel = this.disposables.add(new Emitter<void>());
 	private readonly onDidChangeModelRelay = this.disposables.add(new Relay<void>());
 	private readonly onDidSpliceModelRelay = this.disposables.add(new Relay<ITreeModelSpliceEvent<T, TFilterData>>());
+	private readonly onDidSpliceRenderedNodesRelay = this.disposables.add(new Relay<ITreeListSpliceData<T, TFilterData>>());
 	private readonly onDidChangeCollapseStateRelay = this.disposables.add(new Relay<ICollapseStateChangeEvent<T, TFilterData>>());
 	private readonly onDidChangeRenderNodeCountRelay = this.disposables.add(new Relay<ITreeNode<T, TFilterData>>());
 	private readonly onDidChangeActiveNodesRelay = this.disposables.add(new Relay<ITreeNode<T, TFilterData>[]>());
 
 	get onDidChangeModel(): Event<void> { return Event.any(this.onDidChangeModelRelay.event, this.onDidSwapModel.event); }
+	/**
+	 * The ordered structural changes consumed by the built-in HTML list view.
+	 *
+	 * Non-HTML painters may subscribe to this same stream instead of rebuilding a parallel tree.
+	 * The HTML path remains the direct model-to-view splice in {@link setupModel}.
+	 */
+	get onDidSpliceRenderedNodes(): Event<ITreeListSpliceData<T, TFilterData>> { return this.onDidSpliceRenderedNodesRelay.event; }
 	get onDidChangeCollapseState(): Event<ICollapseStateChangeEvent<T, TFilterData>> { return this.onDidChangeCollapseStateRelay.event; }
 	get onDidChangeRenderNodeCount(): Event<ITreeNode<T, TFilterData>> { return this.onDidChangeRenderNodeCountRelay.event; }
 
@@ -3272,6 +3280,7 @@ export abstract class AbstractTree<T, TFilterData, TRef> implements IDisposable 
 
 		this.onDidChangeActiveNodesRelay.input = activeNodesEmitter.event;
 		this.onDidChangeModelRelay.input = Event.signal(model.onDidSpliceModel);
+		this.onDidSpliceRenderedNodesRelay.input = model.onDidSpliceRenderedNodes;
 		this.onDidChangeCollapseStateRelay.input = model.onDidChangeCollapseState;
 		this.onDidChangeRenderNodeCountRelay.input = model.onDidChangeRenderNodeCount;
 		this.onDidSpliceModelRelay.input = model.onDidSpliceModel;

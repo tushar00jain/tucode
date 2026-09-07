@@ -1,0 +1,27 @@
+// Upstream counterpart: vite.config.ts
+
+{
+  // The build: the boot file, the suites, and the import closure of both — the program
+  // `tsconfig.json` defines, emitted. Two things stop `node --experimental-transform-types`
+  // from running the vendored tree on its own: `ipc.ts` carries `@memoize`, and files like
+  // `arraysFind.ts` import a type without saying `type`. A compiler settles both — decorators
+  // are lowered, type-only imports are elided — so this emits to `out/` and Node runs the
+  // emitted JS.
+  //
+  // Emit options only. The `include` list, the `lib` and the `types` are inherited, so what
+  // `npm run typecheck` checks and what `npm run build` emits cannot come apart; `noCheck`
+  // is what keeps this a build and not a second typecheck.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "noCheck": true,
+    "incremental": true,
+    "tsBuildInfoFile": "out/.tsbuildinfo",
+    "outDir": "out",
+    "rootDir": ".",
+    // Development output is inspected as source, not in a debugger. Keeping maps and source
+    // comments roughly doubles the emitted tree without changing what either frontend runs.
+    "sourceMap": false,
+    "removeComments": true
+  }
+}

@@ -14,6 +14,8 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { GroupIdentifier, IEditorPartOptions } from '../../../common/editor.js';
+import { URI } from '../../../../base/common/uri.js';
+import { FileKind } from '../../../../platform/files/common/files.js';
 
 export const IBreadcrumbsService = createDecorator<IBreadcrumbsService>('IEditorBreadcrumbsService');
 
@@ -24,6 +26,9 @@ export interface IBreadcrumbsService {
 	register(group: GroupIdentifier, widget: BreadcrumbsWidget): IDisposable;
 
 	getWidget(group: GroupIdentifier): BreadcrumbsWidget | undefined;
+
+	/** Optional native file picker; returning false retains the stock picker. */
+	pickFile?(resource: URI, kind: FileKind, anchor: HTMLElement, group: GroupIdentifier, onHide: () => void): boolean;
 }
 
 

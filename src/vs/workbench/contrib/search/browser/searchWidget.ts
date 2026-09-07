@@ -28,6 +28,7 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { ContextScopedReplaceInput } from '../../../../platform/history/browser/contextScopedHistoryWidget.js';
 import { isSearchViewFocused, getSearchView } from './searchActionsBase.js';
 import * as Constants from '../common/constants.js';
+import { searchOnTypeDelay } from '../common/searchOnType.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { IToggleStyles, Toggle } from '../../../../base/browser/ui/toggle/toggle.js';
@@ -50,6 +51,7 @@ import { NotebookFindScopeType } from '../../notebook/common/notebookCommon.js';
 const SingleLineInputHeight = 26;
 
 export interface ISearchWidgetOptions {
+	replaceActiveWhenVisible?: boolean;
 	value?: string;
 	replaceValue?: string;
 	isRegex?: boolean;
@@ -184,7 +186,7 @@ export class SearchWidget extends Widget {
 
 	constructor(
 		container: HTMLElement,
-		options: ISearchWidgetOptions,
+		private readonly options: ISearchWidgetOptions,
 		@IContextViewService private readonly contextViewService: IContextViewService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
@@ -381,7 +383,7 @@ export class SearchWidget extends Widget {
 	}
 
 	searchInputHasFocus(): boolean {
-		return !!this.searchInputBoxFocused.get();
+		return !!this.searchInput?.inputBox.hasFocus();
 	}
 
 	replaceInputHasFocus(): boolean {
@@ -625,7 +627,7 @@ export class SearchWidget extends Widget {
 
 	private updateReplaceActiveState(): void {
 		const currentState = this.isReplaceActive();
-		const newState = this.isReplaceShown() && !!this.replaceAllAction?.enabled;
+		const newState = this.isReplaceShown() && (!!this.options.replaceActiveWhenVisible || !!this.replaceAllAction?.enabled);
 		if (currentState !== newState) {
 			this.replaceActive.set(newState);
 			this._onReplaceStateChange.fire(newState);
@@ -654,31 +656,10 @@ export class SearchWidget extends Widget {
 		this.setReplaceAllActionState(false);
 
 		if (this.searchConfiguration.searchOnType) {
-			if (this.searchInput?.getRegex()) {
-				try {
-					const regex = new RegExp(this.searchInput.getValue(), 'ug');
-					const matchienessHeuristic = `
-								~!@#$%^&*()_+
-								\`1234567890-=
-								qwertyuiop[]\\
-								QWERTYUIOP{}|
-								asdfghjkl;'
-								ASDFGHJKL:"
-								zxcvbnm,./
-								ZXCVBNM<>? `.match(regex)?.length ?? 0;
-
-					const delayMultiplier =
-						matchienessHeuristic < 50 ? 1 :
-							matchienessHeuristic < 100 ? 5 : // expressions like `.` or `\w`
-								10; // only things matching empty string
-
-
-					this.submitSearch(true, this.searchConfiguration.searchOnTypeDebouncePeriod * delayMultiplier);
-				} catch {
-					// pass
-				}
-			} else {
-				this.submitSearch(true, this.searchConfiguration.searchOnTypeDebouncePeriod);
+			try {
+				this.submitSearch(true, searchOnTypeDelay(this.searchInput?.getValue() ?? '', !!this.searchInput?.getRegex(), this.searchConfiguration.searchOnTypeDebouncePeriod));
+			} catch {
+				// Do not submit invalid expressions while typing.
 			}
 		}
 	}

@@ -10,12 +10,10 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { registerContributions as replaceContributions } from './replaceContributions.js';
-import { registerContributions as notebookSearchContributions } from './notebookSearch/notebookSearchContributions.js';
 import { ISearchHistoryService, SearchHistoryService } from '../common/searchHistoryService.js';
 import { searchConfigurationNode } from '../common/search.js';
 
 replaceContributions();
-notebookSearchContributions();
 registerSingleton(ISearchHistoryService, SearchHistoryService, InstantiationType.Delayed);
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({

@@ -6,6 +6,17 @@
 /** What a burst of file-watcher events is batched over before the poll it asks for runs. */
 const BATCH_DELAY = 500;
 
+export interface ICoalescingRefreshScheduler {
+	schedule(callback: () => void | Promise<void>, delay: number): { dispose(): void };
+}
+
+const timeoutScheduler: ICoalescingRefreshScheduler = {
+	schedule(callback, delay) {
+		const handle = setTimeout(callback, delay);
+		return { dispose: () => clearTimeout(handle) };
+	}
+};
+
 /**
  * One poll at a time, and never a missed trigger. A `refresh()` arriving while one is in flight
  * is folded into it — the caller is handed the running promise and the body is re-run once it
@@ -31,12 +42,13 @@ export class CoalescingRefresh {
 	private again = false;
 
 	/** The open batching window, if there is one. */
-	private window: ReturnType<typeof setTimeout> | undefined;
+	private window: { dispose(): void } | undefined;
 
-	constructor(private readonly body: () => Promise<boolean>, private readonly batchDelay = BATCH_DELAY) { }
+	constructor(private readonly body: () => Promise<boolean>, private readonly batchDelay = BATCH_DELAY,
+		private readonly scheduler: ICoalescingRefreshScheduler = timeoutScheduler) { }
 
 	dispose(): void {
-		clearTimeout(this.window);
+		this.window?.dispose();
 		this.window = undefined;
 	}
 
@@ -67,9 +79,9 @@ export class CoalescingRefresh {
 			return;
 		}
 
-		this.window = setTimeout(() => {
+		this.window = this.scheduler.schedule(() => {
 			this.window = undefined;
-			this.refresh();
+			return this.refresh();
 		}, this.batchDelay);
 	}
 

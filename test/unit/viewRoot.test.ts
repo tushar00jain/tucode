@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-	completeQuery, descend, nameAccessor, pathQuery, rankOf, splitQuery, toFuzzyScore,
+	completeQuery, descend, descendLoaded, nameAccessor, pathQuery, rankOf, splitQuery, toFuzzyScore,
 	type INodes
 } from '../../src/vs/workbench/browser/tauri/viewRoot.js';
 
@@ -203,6 +203,10 @@ describe('viewRoot · descend', () => {
 		children: async node => node ? node.children ?? [] : tree,
 		name: node => node.name
 	};
+	const loadedNodes: INodes<IFixtureNode> = {
+		children: node => node ? node.children ?? [] : tree,
+		name: node => node.name
+	};
 
 	it('lands the empty path on the top level itself, which is no node at all', async () => {
 		assert.deepEqual(await descend(nodes, []), { root: undefined, resolved: true });
@@ -245,5 +249,19 @@ describe('viewRoot · descend', () => {
 
 		assert.equal(root?.name, 'test');
 		assert.equal(resolved, false);
+	});
+
+	it('uses the same scorer and segment descent synchronously when the whole path is already loaded', () => {
+		assert.equal(descendLoaded(loadedNodes, ['src'])?.root?.name, 'src');
+		assert.deepEqual(descendLoaded(loadedNodes, ['src', 'tui', 'vie']), {
+			root: tree[1].children![0].children![0], resolved: true
+		});
+		assert.deepEqual(descendLoaded(loadedNodes, ['src', 'zzz']), {
+			root: tree[1], resolved: false
+		});
+	});
+
+	it('declines a synchronous descent as soon as a child lookup owns an asynchronous effect', () => {
+		assert.equal(descendLoaded(nodes, ['src']), undefined);
 	});
 });

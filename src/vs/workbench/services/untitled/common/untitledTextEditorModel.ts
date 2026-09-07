@@ -28,6 +28,7 @@ import { UTF8 } from '../../textfile/common/encoding.js';
 import { bufferToReadable, bufferToStream, VSBuffer, VSBufferReadable, VSBufferReadableStream } from '../../../../base/common/buffer.js';
 import { ILanguageDetectionService } from '../../languageDetection/common/languageDetectionWorkerService.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
+import { onUnexpectedError } from '../../../../base/common/errors.js';
 
 export interface IUntitledTextEditorModel extends ITextEditorModel, ILanguageSupport, IEncodingSupport, IWorkingCopy {
 
@@ -419,7 +420,7 @@ export class UntitledTextEditorModel extends BaseTextEditorModel implements IUnt
 		this._onDidChangeContent.fire();
 
 		// Detect language from content
-		this.autoDetectLanguage();
+		this.autoDetectLanguage().catch(onUnexpectedError);
 	}
 
 	private updateNameFromFirstLine(textEditorModel: ITextModel): void {

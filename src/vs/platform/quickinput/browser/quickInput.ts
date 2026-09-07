@@ -5,6 +5,7 @@
 
 import * as dom from '../../../base/browser/dom.js';
 import { StandardKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
+import { isQuickNavigateRelease } from '../common/quickNavigation.js';
 import { ToolBar } from '../../../base/browser/ui/toolbar/toolbar.js';
 import { Button, IButtonStyles } from '../../../base/browser/ui/button/button.js';
 import { CountBadge, ICountBadgeStyles } from '../../../base/browser/ui/countBadge/countBadge.js';
@@ -18,7 +19,6 @@ import { equals } from '../../../base/common/arrays.js';
 import { TimeoutTimer } from '../../../base/common/async.js';
 import { Codicon } from '../../../base/common/codicons.js';
 import { Emitter, Event, EventBufferer } from '../../../base/common/event.js';
-import { KeyCode } from '../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { isIOS } from '../../../base/common/platform.js';
 import Severity from '../../../base/common/severity.js';
@@ -95,6 +95,8 @@ export const backButton = {
 };
 
 export interface QuickInputUI {
+	/** A non-browser host schedules paint after the widget updates. */
+	didChange?: () => void;
 	container: HTMLElement;
 	styleSheet: HTMLStyleElement;
 	leftActionBar: ToolBar;
@@ -384,6 +386,7 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	readonly onWillHide = this.onWillHideEmitter.event;
 
 	protected update() {
+		this.ui.didChange?.();
 		if (!this.visible) {
 			return;
 		}
@@ -604,6 +607,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 				}
 			}
 			this.onDidChangeValueEmitter.fire(this._value);
+			this.ui.didChange?.();
 		}
 	}
 
@@ -979,38 +983,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 			}
 
 			const keyboardEvent: StandardKeyboardEvent = new StandardKeyboardEvent(e);
-			const keyCode = keyboardEvent.keyCode;
-
-			// Select element when keys are pressed that signal it
-			const quickNavKeys = this._quickNavigate.keybindings;
-			const wasTriggerKeyPressed = quickNavKeys.some(k => {
-				const chords = k.getChords();
-				if (chords.length > 1) {
-					return false;
-				}
-
-				if (chords[0].shiftKey && keyCode === KeyCode.Shift) {
-					if (keyboardEvent.ctrlKey || keyboardEvent.altKey || keyboardEvent.metaKey) {
-						return false; // this is an optimistic check for the shift key being used to navigate back in quick input
-					}
-
-					return true;
-				}
-
-				if (chords[0].altKey && keyCode === KeyCode.Alt) {
-					return true;
-				}
-
-				if (chords[0].ctrlKey && keyCode === KeyCode.Ctrl) {
-					return true;
-				}
-
-				if (chords[0].metaKey && keyCode === KeyCode.Meta) {
-					return true;
-				}
-
-				return false;
-			});
+			const wasTriggerKeyPressed = isQuickNavigateRelease(this._quickNavigate, keyboardEvent);
 
 			if (wasTriggerKeyPressed) {
 				if (this.activeItems[0]) {

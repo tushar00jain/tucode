@@ -48,7 +48,7 @@ interface IModalEditor extends IDisposable {
 	session: VimSession | undefined;
 }
 
-class VimContribution extends Disposable implements IWorkbenchContribution {
+export class VimContribution extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.contrib.tauriVim';
 
@@ -200,6 +200,9 @@ class VimContribution extends Disposable implements IWorkbenchContribution {
 	 * `softDispatch` is the expensive half.
 	 */
 	private onKeyDown(modal: IModalEditor, event: IKeyboardEvent): void {
+		// A prefix already accepted by VS Code owns the rest of its chord, even
+		// when the next key is a printable Vim key (for example Cmd-K, V).
+		if (this.keybindingService.inChordMode) { return; }
 		const consumes = modal.policy.consumesKey(vimKeyName(event), () => {
 			const resolved = this.keybindingService.softDispatch(event, event.target);
 

@@ -298,7 +298,7 @@ export class BreadcrumbsControl {
 		@ILabelService private readonly _labelService: ILabelService,
 		@IConfigurationService configurationService: IConfigurationService,
 		@IHoverService private readonly _hoverService: IHoverService,
-		@IBreadcrumbsService breadcrumbsService: IBreadcrumbsService
+		@IBreadcrumbsService private readonly breadcrumbsService: IBreadcrumbsService
 	) {
 		this.domNode = document.createElement('div');
 		this.domNode.classList.add('breadcrumbs-control');
@@ -619,6 +619,17 @@ export class BreadcrumbsControl {
 			this._widget.setFocused(undefined);
 			this._widget.setSelection(undefined);
 			this._quickInputService.quickAccess.show(element instanceof OutlineElement2 ? '@' : '');
+			return;
+		}
+
+		if (element instanceof FileElement && this.breadcrumbsService.pickFile?.(element.uri, element.kind, event.node, this._editorGroup.id, () => {
+			this._breadcrumbsPickerShowing = false;
+			this._widget.setFocused(undefined);
+			this._widget.setSelection(undefined);
+			this._updateCkBreadcrumbsActive();
+		})) {
+			this._breadcrumbsPickerShowing = true;
+			this._updateCkBreadcrumbsActive();
 			return;
 		}
 

@@ -133,7 +133,7 @@ export class SearchModelImpl extends Disposable implements ISearchModel {
 			tokenSource.token,
 			async (p: ISearchProgressItem) => {
 				onResult(p);
-				this.onSearchProgress(p, searchInstanceID, false, true);
+				await this.onSearchProgress(p, searchInstanceID, false, true);
 			}).finally(() => {
 				tokenSource.dispose(true);
 			}).then(
@@ -158,7 +158,7 @@ export class SearchModelImpl extends Disposable implements ISearchModel {
 	} {
 		const asyncGenerateOnProgress = async (p: ISearchProgressItem) => {
 			progressEmitter.fire();
-			this.onSearchProgress(p, searchInstanceID, false, false);
+			await this.onSearchProgress(p, searchInstanceID, false, false);
 			onProgress?.(p);
 		};
 
@@ -252,7 +252,7 @@ export class SearchModelImpl extends Disposable implements ISearchModel {
 			return event;
 		});
 
-		Promise.race([asyncResults, progressEmitterPromise]).finally(() => {
+		const recordFirstRender = () => {
 			/* __GDPR__
 				"searchResultsFirstRender" : {
 					"owner": "roblourens",
@@ -261,7 +261,10 @@ export class SearchModelImpl extends Disposable implements ISearchModel {
 			*/
 			event?.dispose();
 			this.telemetryService.publicLog('searchResultsFirstRender', { duration: Date.now() - start });
-		});
+		};
+		// Observe both outcomes explicitly. Discarding the promise returned by `finally` mirrors the
+		// source rejection as an unhandled derived promise when a search-on-type query is cancelled.
+		void Promise.race([asyncResults, progressEmitterPromise]).then(recordFirstRender, recordFirstRender);
 
 		try {
 			return {
@@ -353,7 +356,7 @@ export class SearchModelImpl extends Disposable implements ISearchModel {
 		}
 	}
 
-	private onSearchProgress(p: ISearchProgressItem, searchInstanceID: string, sync = true, ai: boolean = false) {
+	private onSearchProgress(p: ISearchProgressItem, searchInstanceID: string, sync = true, ai: boolean = false): Promise<void> | void {
 		const targetQueue = ai ? this._aiResultQueue : this._resultQueue;
 		if ((<IFileMatch>p).resource) {
 			targetQueue.push(<IFileMatch>p);
@@ -363,7 +366,7 @@ export class SearchModelImpl extends Disposable implements ISearchModel {
 					targetQueue.length = 0;
 				}
 			} else {
-				this._startStreamDelay.then(() => {
+				return this._startStreamDelay.then(() => {
 					if (targetQueue.length) {
 						this._searchResult.add(targetQueue, searchInstanceID, ai, !ai);
 						targetQueue.length = 0;
@@ -429,4 +432,3 @@ export class SearchViewModelWorkbenchService implements ISearchViewModelWorkbenc
 		this._searchModel = searchModel;
 	}
 }
-

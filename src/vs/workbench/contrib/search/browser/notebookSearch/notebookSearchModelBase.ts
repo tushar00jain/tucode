@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ITextSearchMatch } from '../../../../services/search/common/search.js';
-import { ICellViewModel } from '../../../notebook/browser/notebookBrowser.js';
-import { NotebookEditorWidget } from '../../../notebook/browser/notebookEditorWidget.js';
+import type { ICellViewModel } from '../../../notebook/browser/notebookBrowser.js';
+import type { NotebookEditorWidget } from '../../../notebook/browser/notebookEditorWidget.js';
 import { INotebookCellMatchNoModel } from '../../common/searchNotebookHelpers.js';
 import { ISearchTreeFileMatch, ISearchTreeMatch, isSearchTreeFileMatch } from '../searchTreeModel/searchTreeCommon.js';
 import { INotebookCellMatchWithModel } from './searchNotebookHelpers.js';

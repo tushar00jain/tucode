@@ -1,0 +1,9 @@
+/* The terminal exposes row actions through keys/context menus and always paints result counts. */
+.terminal-search .search-view .monaco-list .monaco-list-row .monaco-action-bar {
+	display: none;
+}
+.terminal-search .pane-body:not(.wide) .search-view > .results > .monaco-list .monaco-list-row.focused .filematch .monaco-count-badge,
+.terminal-search .pane-body:not(.wide) .search-view > .results > .monaco-list .monaco-list-row.focused .foldermatch .monaco-count-badge,
+.terminal-search .pane-body:not(.wide) .search-view > .results > .monaco-list .monaco-list-row.focused .linematch .monaco-count-badge {
+	display: inline-block;
+}

@@ -761,6 +761,8 @@ export interface ITerminalLaunchError {
 
 export interface IProcessReadyEvent {
 	pid: number;
+	/** Owned Unix process group reported by the PTY spawn boundary. */
+	processGroupId?: number;
 	cwd: string;
 	windowsPty: IProcessReadyWindowsPty | undefined;
 }

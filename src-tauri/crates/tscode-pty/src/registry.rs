@@ -54,10 +54,20 @@ impl PtyRegistry {
         self.ptys().remove(&id);
     }
 
-    /// Shut every terminal down. The window that owned them is gone.
-    pub fn shutdown_all(&self) {
-        for (_, process) in std::mem::take(&mut *self.ptys()) {
+    /// Shut every terminal down and wait for its child to be reaped. The window
+    /// that owned them is gone.
+    ///
+    /// Asking every one of them first and waiting afterwards is what keeps the
+    /// cost at one terminal's teardown rather than the sum of them: stock's
+    /// `shutdown` is a request whose timers run concurrently.
+    pub async fn shutdown_all(&self) {
+        let processes: Vec<Arc<TerminalProcess>> =
+            std::mem::take(&mut *self.ptys()).into_values().collect();
+        for process in &processes {
             process.shutdown(true);
+        }
+        for process in &processes {
+            process.wait_until_reaped().await;
         }
     }
 

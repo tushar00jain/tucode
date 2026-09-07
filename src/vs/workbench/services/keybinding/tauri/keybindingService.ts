@@ -15,6 +15,8 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { KeybindingResolver } from '../../../../platform/keybinding/common/keybindingResolver.js';
+import { KeybindingsRegistry } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { OperatingSystem } from '../../../../base/common/platform.js';
 import { IKeyboardLayoutService } from '../../../../platform/keyboardLayout/common/keyboardLayout.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -42,6 +44,7 @@ import { filterForTakeover, printEffectiveKeybindings, takeoverSettingKey } from
 export class TauriKeybindingService extends WorkbenchKeybindingService {
 
 	private _takeoverResolver: KeybindingResolver | null = null;
+	private readonly terminalKeyboard: boolean;
 
 	constructor(
 		@IContextKeyService contextKeyService: IContextKeyService,
@@ -58,6 +61,7 @@ export class TauriKeybindingService extends WorkbenchKeybindingService {
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super(contextKeyService, commandService, telemetryService, notificationService, userDataProfileService, hostService, extensionService, fileService, uriIdentityService, logService, keyboardLayoutService);
+		this.terminalKeyboard = (keyboardLayoutService as IKeyboardLayoutService & { terminalWire?: boolean }).terminalWire === true;
 
 		// Stock clears its own cached resolver and then fires this, so the filtered one built on
 		// top of it goes stale at exactly the same moments.
@@ -71,6 +75,12 @@ export class TauriKeybindingService extends WorkbenchKeybindingService {
 				this._onDidUpdateKeybindings.fire();
 			}
 		}));
+	}
+
+	protected override _getDefaultKeybindings() {
+		return this.terminalKeyboard
+			? KeybindingsRegistry.getDefaultKeybindingsForOS(OperatingSystem.Linux)
+			: super._getDefaultKeybindings();
 	}
 
 	/**
@@ -90,7 +100,11 @@ export class TauriKeybindingService extends WorkbenchKeybindingService {
 
 	protected override _getResolver(): KeybindingResolver {
 		const stock = super._getResolver();
-		if (!this.configurationService.getValue<boolean>(takeoverSettingKey)) {
+		// The takeover exists for a terminal wire, where ordinary printable keys have already
+		// been claimed by the terminal keymap. A browser/WK editor has VS Code's native keyboard
+		// event surface and must retain the complete platform resolver (Undo, Redo, Save, editor
+		// navigation, and user-facing extension keybindings included).
+		if (!this.terminalKeyboard || !this.configurationService.getValue<boolean>(takeoverSettingKey)) {
 			return stock;
 		}
 

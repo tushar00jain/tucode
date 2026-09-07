@@ -4,30 +4,43 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The keymap instrument: `keymap.ts` against the keys a sibling checkout actually registers, and
- * against upstream's own default set.
+ * The keymap instrument: `keymap.ts` against the keys **tscode** actually registers, and against
+ * the rules a frontend of this repository registers for itself.
  *
- * **Why it exists.** Where the same keyboard is declared in two places — once here as `KEYMAP`,
- * once there as `registerTuiCommand`/`registerPaneCommand` calls — the two declarations drift. A
- * survey read fifteen rows by hand and found them agreeing, which is reassurance rather than
- * evidence; this is the mechanical answer, and it goes on being one once the sibling's copy becomes
- * an import, because upstream's set is still moving underneath both.
+ * **Why it exists.** The same keyboard is declared three times — here as `KEYMAP`, in
+ * `tui/workbench/commands.ts` and the panes as `registerTuiCommand`/`registerPaneCommand` calls,
+ * and in tscode as `registerAction2`/`KeybindingsRegistry` calls — and declarations drift. A survey
+ * read fifteen rows by hand and found them agreeing, which is reassurance rather than evidence;
+ * this is the mechanical answer, and it goes on being one once a declaration becomes an import,
+ * because tscode's set is still moving underneath all of them.
  *
- * **The sibling's own scanner does the reading.** Its `scripts/keymap-bindings.mjs` already
- * knows how to find a registration, follow a constant across an import, and label a chord the way
- * upstream labels one. Reading those files again from here would be a second extractor with a
- * second set of bugs, so this imports that one — and points it at *this* tree too, for the upstream
- * set. That is the one property of this instrument worth protecting.
+ * **What it used to measure.** It resolved a sibling directory *named* `tucode` and found this
+ * repository, so `upstreamRules` and `forkRules` read one tree and three of its seven checks
+ * compared this repo with itself. Two of them could not report anything by construction — nothing
+ * is undeclared when both lists come from the registrations one declaration describes — and a third
+ * quoted this fork's own rules back at it as *upstream keeps `Tab` on `tscode.focusNextView`*. The
+ * real measurement inside it, `KEYMAP`'s column against the `registerTuiCommand` calls in the same
+ * tree, is kept and is now a gate of its own. Everything that says *upstream* reads a tscode
+ * checkout now, resolved and asserted by `docs/provenance/baseline.mjs` — by the checkout's own
+ * name, which is the one check a renamed directory cannot defeat.
  *
- * **Five checks**, each of which found something real when the sweep ran them by hand. The first
- * four are mechanical, so they gate; the rest are readings a person makes, so they list.
+ * **One scanner does the reading.** `scripts/keymap-bindings.mjs` already knows how to find a
+ * registration, follow a constant across an import, and label a chord the way upstream labels one.
+ * Reading those files again from here would be a second extractor with a second set of bugs, so
+ * this imports that one and points it at both trees. It is imported from *this* repo rather than
+ * from the measured checkout, because tscode has no copy of it: the scanner suite is this fork's
+ * own, and the tree it reads is the variable.
+ *
+ * **Nine checks.** The first five are mechanical, so they gate; the last four are readings a
+ * person makes, so they list.
  *
  * | check | what a finding means | gates |
  * | --- | --- | --- |
- * | the tuple diff | one id, two registrations, and a chord, a scope or a count of guard terms that disagrees | yes |
+ * | the column against the registrations | the table declares a chord for this surface and this surface's boot closure registers another | yes |
+ * | the tuple diff | one id, two registrations, and a chord, a scope or a count of guard terms that disagrees with tscode | yes |
  * | stale reasons | a `surfaceDrift` entry explaining a divergence that is no longer measured | yes |
- * | undeclared ids | the sibling answers a key this map does not declare at all | yes |
- * | dangling rules | a row binds a command nothing in this app's boot closure registers | yes |
+ * | undeclared ids | tscode answers a key this map does not declare at all | yes |
+ * | dangling rules | a row binds a command nothing in this frontend's boot closure registers | yes |
  * | values the scan could not read | **an expression with no static answer**, and every comparison withheld because of one | no |
  * | the guard, both ways | the two spellings of one guard, side by side | no |
  * | the keep-set hazard | **a chord upstream answers with more than one command** — the `pastePwsh` shape, where naming one of them silently changed which paste ran | no |
@@ -42,86 +55,73 @@
  * two expansions are built from: the view, the not-typing term, and how many terms are left over.
  *
  * `npm run keymap` reports and exits 0; `npm run keymap -- --gate` exits 1 on a gated finding with
- * no written reason, **and the pre-commit hook runs it**. It went in once the three rows it opened
- * with were settled: one was this script's own defect, and the other two were real differences the
- * row format could not record until `surfaceDrift` arrived — which is the shape a first run's
- * findings take, and why a gate is wired after the instrument has been believed rather than before.
+ * no written reason. **The pre-commit hook does not run it** — turning an instrument from triage
+ * into a gate is a standing rule and therefore the user's, and this one has open findings against
+ * tscode that are readings rather than defects.
  *
- * It **skips, with a message that says how to point it somewhere**, when there is no sibling
+ * It **skips, with a message that says how to point it somewhere**, when there is no tscode
  * checkout: a clone with only this repo in it is the ordinary case and must not fail.
  */
 
-import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
-import { editorIdOf, expandTuiScope, KEYMAP, KeymapDrift, keysFor, viewIdOf } from '../src/vs/workbench/browser/tauri/keymap.js';
+import { baselineRoot, HOW } from '../docs/provenance/baseline.mjs';
+import * as closure from '../docs/keyboard/closure.mjs';
+import * as keybindings from './keymap-bindings.mjs';
+import * as registrations from '../docs/keyboard/registrations.mjs';
+import * as tree from '../docs/provenance/tree.mjs';
+import { editorIdOf, expandTuiScope, KeymapDrift, keysFor, rowsFor, viewIdOf } from '../src/vs/workbench/browser/tauri/keymap.js';
 import { chordLabel as label } from './chordLabel.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-const SCANNER_MODULES = ['scripts/keymap-bindings.mjs', 'docs/keyboard/closure.mjs',
-	'docs/keyboard/registrations.mjs', 'docs/provenance/tree.mjs'];
+/**
+ * The boot file that makes a closure a closure, per frontend. tscode's is `src/main.ts` too, which
+ * is what lets one entry answer for both sides of the comparison.
+ */
+const ROOTS = { tui: ['src/main.ts'] };
 
-/** The boot file that makes a closure a closure, on both sides. */
-const ROOTS = ['src/main.ts'];
-
+/** The frontend being measured — which closure is walked, and which column of the table is read. */
+const SURFACE = 'tui';
 
 /** "The user is not typing", as the scanned guard writes it — `keybindings.mjs`'s `guard`. */
 const NOT_TYPING = 'InputFocusedContext.negate()';
 
-const flag = name => {
-	const at = process.argv.indexOf(`--${name}`);
-	return at === -1 ? undefined : process.argv[at + 1];
-};
-
 /**
- * The checkout to measure against: an argument, then the environment, then the sibling layout —
- * the precedence `scripts/vscode-source.ps1` resolves a VS Code checkout with, because it is the
- * same question. `undefined` when there is none, which is a skip and not a failure.
+ * A file tscode wrote rather than inherited: outside VS Code's tree, or in one of the `tauri/`
+ * directories the copy scripts leave alone. It is what scopes the undeclared check — a stock VS
+ * Code key this map does not declare is the keep-set doing its job, not a gap in the map.
  */
-function forkRoot() {
-	const named = flag('tucode') ?? process.env.TSCODE_TUCODE_ROOT ?? resolve(REPO_ROOT, '..', 'tucode');
-	const root = resolve(named);
-
-	return existsSync(resolve(root, SCANNER_MODULES[0])) ? root : undefined;
-}
-
-
-/** The sibling's scanner and tree reader, imported rather than reimplemented. */
-async function forkTools(root) {
-	const at = name => pathToFileURL(resolve(root, name)).href;
-	const [keybindings, closure, registrations, tree] = await Promise.all(
-		SCANNER_MODULES.map(name => import(at(name))));
-
-	return { keybindings, closure, registrations, tree };
-}
+const forkLayer = (rel) => !rel.startsWith('src/vs/') || rel.includes('/tauri/');
 
 /** How the scanned guard states the view a rule is scoped to. */
 const VIEW_TERM = /^FocusedViewContext\.isEqualTo\('(.*)'\)$/;
 
 /**
- * Every rule the measured checkout's own files declare, as `(id, chords, view, whileEditing, when)`.
+ * Every rule in tscode's boot closure, as `(id, chords, view, whileEditing, when)`.
  *
- * **`rows()` is that checkout's own reading of its own rules, and this takes it whole.** It already
- * excludes the vendored copy of this tree, resolves a command that is *declared* rather than bound
- * to the upstream rule that carries its key, and turns a `primary`/`secondary` pair into chord
- * labels. This module used to do all three again, and the third of them was wrong: it split
- * `secondary` on every comma, so a `[KeyChord(a, b)]` came apart into two halves that parse as
- * nothing and the chord vanished — which is how `workbench.action.openGlobalKeybindings` was
- * measured as `?` alone with `Ctrl+K Ctrl+S` bound beside it. A second extractor with a second set
- * of bugs is exactly what this file's header says not to build.
+ * **`rows()` does the reading, and this takes it whole.** It resolves a command that is *declared*
+ * rather than bound to the rule that carries its key, and turns a `primary`/`secondary` pair into
+ * chord labels. This module used to do both again, and the second was wrong: it split `secondary`
+ * on every comma, so a `[KeyChord(a, b)]` came apart into two halves that parse as nothing and the
+ * chord vanished — which is how `workbench.action.openGlobalKeybindings` was measured as `?` alone
+ * with `Ctrl+K Ctrl+S` bound beside it. A second extractor with a second set of bugs is exactly
+ * what this file's header says not to build.
  *
- * The two arguments it takes and this does not need are answered flat: the upstream key of a
- * command is what the tuple diff computes for itself, and every chord is deliverable here because
- * what a terminal's wire can carry is not this app's question.
+ * The two arguments this does not need are answered flat: the upstream key of a command is what
+ * the tuple diff computes for itself, and every chord is deliverable in a window.
  */
-function forkRules({ keybindings, tree }, root) {
-	const fork = tree.workingTree(root);
-	const labels = keybindings.keyCodeLabels(fork);
+function tscodeRules(root) {
+	const theirs = tree.workingTree(root);
+	const labels = keybindings.keyCodeLabels(theirs);
 	const out = new Map();
 
-	for (const row of keybindings.rows(keybindings.rules(fork, ROOTS), () => keybindings.ABSENT, labels, () => true)) {
+	// The fifth argument is the one that matters: `rows()` defaults to the files outside `src/vs`,
+	// because the drift inventory compares this fork's keys against tscode's — and asked of tscode
+	// that filter answers with three rules. What a tscode window resolves for a command is the
+	// whole closure, so every file in it counts here.
+	for (const row of keybindings.rows(keybindings.rules(theirs, ROOTS.tui), () => keybindings.ABSENT, labels, () => true, () => true)) {
 		if (typeof row.id !== 'string' || row.id.startsWith('?')) {
 			continue;
 		}
@@ -145,16 +145,12 @@ function forkRules({ keybindings, tree }, root) {
 	return out;
 }
 
-/**
- * Every keybinding rule in *this* app's boot closure, and every command id it registers. The
- * expressions it could not read come back too, for the caller that gates on a comparison over them
- * — which here is none: what this feeds is the keep-set and the extra-chord list, both readings.
- */
-function upstreamRules({ keybindings, closure, registrations, tree }, root) {
+/** Every keybinding rule in the measured frontend's boot closure, and every command id it registers. */
+function hereRules(root, roots) {
 	const here = tree.workingTree(root);
 	const labels = keybindings.keyCodeLabels(here);
-	const { scan } = registrations.scanner(registrations.loadTypeScript(root), keybindings.injectedKeys(ROOTS));
-	const reached = closure.closure(here, ROOTS);
+	const { scan } = registrations.scanner(registrations.loadTypeScript(root), keybindings.injectedKeys(roots));
+	const reached = closure.closure(here, roots);
 	const edge = (spec, from) => closure.resolveSpec(here, spec, from);
 
 	const rules = [];
@@ -216,6 +212,12 @@ function upstreamRules({ keybindings, closure, registrations, tree }, root) {
  * `COMMANDS`, so the id at the call site is `command.id` rather than a literal and a static scan
  * records a computed id as unreadable. Reading the array's own `id:` lines is the same set out of
  * the same file, and it is what keeps the dangling check from calling every one of them dangling.
+ *
+ * **It describes the `gui` surface and neither frontend here**, which is why the dangling check
+ * still reports four rows under `--surface tui`: `keymap.contribution.ts` is what a *window*
+ * registers, and this repository's frontends register their commands elsewhere. The set is read
+ * anyway because a row it names is not dangling *anywhere* — a wrapper that exists is a wrapper —
+ * and the four it does not cover are the finding rather than the tool's mistake.
  */
 async function implementedIds() {
 	const { readFile } = await import('node:fs/promises');
@@ -262,9 +264,10 @@ function unreadable(...maps) {
  * for one instead would be the trap this exists to close: it launders a measurement failure as
  * declared divergence, and every later reader believes the key genuinely differs.
  *
- * **`unread` is the holes on the side the check actually read**, and only that side. The tuple diff
- * reads the sibling's registrations; withholding its findings for a hole in this app's own closure
- * would hide real drift, which is the same disservice in the other direction.
+ * **`unread` is the holes on the side the check actually read**, and only that side. The column
+ * check reads this frontend's own registrations and the tuple diff reads tscode's; withholding one
+ * check's findings for the other side's holes would hide real drift, which is the same disservice in
+ * the other direction.
  */
 const withhold = (findings, unread) => ({
 	drift: findings.filter(one => !unread.has(one.id)),
@@ -289,22 +292,57 @@ function unreadableFindings(unread, held, rows) {
 }
 
 /**
- * The tuple diff — `(id, chord, scope, args)` per row, this frontend's expansion against the
- * fork's. The guard is compared as the scope it came from rather than as a serialized `when`: the
- * one thing the two declarations cannot spell alike is the guard, which is why `scope` is symbolic
- * in the first place, so a string comparison of two `when`s would report the design as drift.
+ * **The column against the registrations** — the one measurement the instrument made while it was
+ * pointed at itself, kept and named.
+ *
+ * `KEYMAP` declares a chord per surface and the surface's own files register one; nothing generates
+ * either from the other. This is what makes the column a description of the app rather than a wish:
+ * for every id both sides name, the chords have to be the same set.
+ *
+ * A row nothing registers is the dangling check's, and an id registered without a row is the
+ * undeclared check's; this is only about the rows where both sides spoke.
+ */
+function columnAgainstRegistrations(rows, registeredChords) {
+	const findings = [];
+
+	for (const row of rows.values()) {
+		// The row's own id first: a forwarding row is registered here *at its own id* and the command
+		// it forwards to is registered by whoever owns it, at whatever chord that owner chose.
+		const theirs = registeredChords.get(row.id) ?? registeredChords.get(row.bound);
+		if (row.stock || !theirs) {
+			continue;
+		}
+
+		const declared = [...row.chords].sort();
+		const measured = [...new Set(theirs)].sort();
+		if (declared.join(' · ') !== measured.join(' · ')) {
+			findings.push(finding(KeymapDrift.Chord, row.id, declared.join(' · ') || '(none)', measured.join(' · ') || '(none)', row.reason));
+		}
+	}
+
+	return findings;
+}
+
+/**
+ * The tuple diff — `(id, chord, scope, args)` per row, this frontend's expansion against tscode's.
+ * The guard is compared as the scope it came from rather than as a serialized `when`: the one thing
+ * the two declarations cannot spell alike is the guard, which is why `scope` is symbolic in the
+ * first place, so a string comparison of two `when`s would report the design as drift.
  *
  * A difference is answered by the row's `surfaceDrift` entry for *that* comparison, and by nothing
- * else: `reason` covers the drifts a row declares — `only` and `guiKeys` — and a chord split
- * legitimately declared there would otherwise launder a guard nobody explained.
+ * else: `reason` covers the drifts a row declares — `only` and `guiKeys` — and a
+ * chord split legitimately declared there would otherwise launder a guard nobody explained.
+ *
+ * **A row the measured surface does not carry is not compared.** Its command exists somewhere else
+ * and nowhere here, so tscode having a rule for it is the row working, not drifting.
  */
-function tupleDiff(rows, fork) {
+function tupleDiff(rows, theirRules) {
 	const findings = [];
 	const list = terms => [...terms].sort().join(' · ') || '(none)';
 	const why = (tuple, kind) => tuple.surfaceDrift?.[kind] ?? tuple.reason;
 
 	for (const [id, tuple] of rows) {
-		const theirs = fork.get(id);
+		const theirs = theirRules.get(id);
 		if (!theirs) {
 			continue;
 		}
@@ -355,9 +393,9 @@ function staleReasons(rows, drifted) {
  * instrument refuses to make, and rightly. So it is listed for a reader, and the count of terms is
  * what gates.
  */
-function guardSpellings(rows, fork) {
+function guardSpellings(rows, theirRules) {
 	return [...rows.values()]
-		.map(row => ({ row, theirs: fork.get(row.id) }))
+		.map(row => ({ row, theirs: theirRules.get(row.id) }))
 		.filter(({ row, theirs }) => theirs && (row.extra.length > 0 || theirs.extra.size > 0))
 		.map(({ row, theirs }) => finding('guard', row.id, row.guard, theirs.guard, row.reason));
 }
@@ -365,7 +403,7 @@ function guardSpellings(rows, fork) {
 /** A row whose rule binds a command nothing registers: a key that silently does nothing. */
 function dangling(rows, registered) {
 	return [...rows.values()]
-		.filter(row => !row.stock && row.only !== 'tui' && !registered.has(row.bound))
+		.filter(row => !row.stock && !registered.has(row.bound))
 		.map(row => finding('dangling', row.id, `binds ${row.bound}`, 'nothing in the boot closure registers it', row.reason));
 }
 
@@ -381,6 +419,10 @@ function dangling(rows, registered) {
  * over constants declared elsewhere. Resolving those to key names is a table of what each expression
  * means, which is the judgement the borrowed scanner refuses to make. The ids that are kept by name
  * are marked; the rest say "by guard, unread".
+ *
+ * **The chords claimed are the `gui` column's**, because the keep-set is a window's filter over a
+ * window's defaults: what it decides is which of tscode's own rules survive, and a chord a terminal
+ * cannot even receive never reaches it.
  */
 function keepSetHazards(rows, upstream, keptById) {
 	const byChord = new Map();
@@ -390,9 +432,6 @@ function keepSetHazards(rows, upstream, keptById) {
 
 	const claimed = new Map();
 	for (const row of rows.values()) {
-		if (row.only === 'tui') {
-			continue;
-		}
 		for (const chord of row.guiChords) {
 			claimed.set(chord, [...(claimed.get(chord) ?? []), row.id]);
 		}
@@ -422,7 +461,7 @@ function extraChords(rows, upstream) {
 	}
 
 	return [...rows.values()]
-		.filter(row => !row.stock && row.only !== 'tui')
+		.filter(row => !row.stock)
 		.map(row => ({ row, extra: [...new Set(byId.get(row.bound) ?? [])].filter(chord => !row.guiChords.includes(chord)) }))
 		.filter(entry => entry.extra.length > 0)
 		.map(({ row, extra }) => finding('extra chord', row.id, row.guiChords.join(' · '), `upstream keeps ${extra.join(' · ')} on ${row.bound}`, row.reason));
@@ -438,20 +477,20 @@ function report(title, findings, gated) {
 	}
 }
 
-async function main() {
-	const root = forkRoot();
-	if (!root) {
-		console.log('keymap: no sibling checkout found, so the two declarations cannot be compared — skipped.');
-		console.log('        Pass `--tucode <path>`, set `TSCODE_TUCODE_ROOT`, or clone it beside this repo.');
-		return 0;
-	}
-	console.log(`keymap: comparing against ${root}`);
-
-	const tools = await forkTools(root);
-	const implemented = await implementedIds();
+/**
+ * The table, collapsed to one entry per command id — nine digit rows are one command with nine
+ * keys, and a finding about `tscode.showViewContainer` is one finding.
+ *
+ * `chords` is the measured surface's column and `guiChords` is always the `gui` one, because the
+ * two answer different questions: what this frontend delivers, and what a window's keep-set filter
+ * sees.
+ */
+function collapse(surface, implemented) {
 	const rows = new Map();
 
-	for (const row of KEYMAP) {
+	// `rowsFor` is the module's own answer to which rows a surface has, and it is what this asks: a
+	// row a surface does not carry is not a row that surface can drift on.
+	for (const row of rowsFor(surface)) {
 		const entry = rows.get(row.id) ?? {
 			id: row.id,
 			bound: boundId(row, implemented),
@@ -463,13 +502,10 @@ async function main() {
 			guard: undefined,
 			args: row.args,
 			stock: true,
-			only: row.only,
 			reason: row.reason,
 			surfaceDrift: undefined
 		};
-		if (row.only !== 'gui') {
-			entry.chords.push(...keysFor(row, 'tui').map(label));
-		}
+		entry.chords.push(...keysFor(row, surface).map(label));
 		if (row.only !== 'tui') {
 			entry.guiChords.push(...keysFor(row, 'gui').map(label));
 		}
@@ -487,49 +523,80 @@ async function main() {
 		entry.surfaceDrift = { ...row.surfaceDrift, ...entry.surfaceDrift };
 		rows.set(row.id, entry);
 	}
+
 	for (const entry of rows.values()) {
 		entry.chords = [...new Set(entry.chords)].sort();
 		entry.guiChords = [...new Set(entry.guiChords)];
 	}
 
-	const fork = forkRules(tools, root);
-	const { rules: upstream, registered } = upstreamRules(tools, REPO_ROOT);
+	return rows;
+}
+
+async function main() {
+	if (!ROOTS[SURFACE]) {
+		console.log(`keymap: no frontend called ${JSON.stringify(SURFACE)} — pass \`--surface ${Object.keys(ROOTS).join('\` or \`--surface ')}\`.`);
+
+		return 1;
+	}
+
+	const root = baselineRoot('keymap');
+	if (!root) {
+		console.log(`        ${HOW}`);
+
+		return 0;
+	}
+	console.log(`keymap: --surface ${SURFACE}, from ${ROOTS[SURFACE].join(', ')}, against ${root}`);
+
+	const implemented = await implementedIds();
+	const rows = collapse(SURFACE, implemented);
+
+	const theirs = tscodeRules(root);
+	const { rules: here, registered, unread: hereUnread } = hereRules(REPO_ROOT, ROOTS[SURFACE]);
 	for (const id of implemented) {
 		registered.add(id);
 	}
+	const theirUnread = holes(theirs);
+
+	/** What this frontend's own closure binds, per command id — the other half of the column check. */
+	const registeredChords = new Map();
+	for (const rule of here) {
+		registeredChords.set(rule.id, [...(registeredChords.get(rule.id) ?? []), rule.chord]);
+	}
+
 	// The keep-set's id-based half, asked the way the filter asks it — the map's own commands are
 	// declared to it here exactly as `keymap.contribution.ts` declares them at boot.
 	const takeover = await import('../src/vs/workbench/services/keybinding/tauri/keyboardTakeover.js');
 	for (const row of rows.values()) {
-		if (!row.stock && row.only !== 'tui') {
+		if (!row.stock) {
 			takeover.registerTakeoverKeepCommand(row.bound);
 		}
 	}
 	const keptById = id => takeover.keepReason({ command: id, when: undefined }) !== undefined;
 
-	const shared = [...rows.keys()].filter(id => fork.has(id));
-	const unknown = [...fork.keys()].filter(id => !rows.has(id));
-	console.log(`        ${KEYMAP.length} rows / ${rows.size} ids here, ${fork.size} ids there, ${shared.length} shared`);
-	console.log(`        ${upstream.length} upstream rules in this app's closure, ${registered.size} command ids registered`);
+	const shared = [...rows.keys()].filter(id => theirs.has(id));
+	const unknown = [...theirs].filter(([id, entry]) => !rows.has(id) && [...entry.files].some(forkLayer)).map(([id]) => id);
+	console.log(`        ${rows.size} ids on this surface, ${theirs.size} ids in tscode's closure, ${shared.length} shared`);
+	console.log(`        ${here.length} rules in this frontend's closure, ${registered.size} command ids registered`);
 	console.log('        args is declared on both sides and readable on neither by the borrowed scanner — compared here only.');
 
-	const forkUnread = holes(fork);
-	const diff = withhold(tupleDiff(rows, fork), forkUnread);
-	const held = unreadableFindings(forkUnread, diff.held, rows);
+	const column = withhold(columnAgainstRegistrations(rows, registeredChords), hereUnread);
+	const diff = withhold(tupleDiff(rows, theirs), theirUnread);
+	const held = unreadableFindings(unreadable(hereUnread, theirUnread), [...column.held, ...diff.held], rows);
 	// `staleReasons` is asked about the withheld findings too: a reason for a divergence that was
 	// withheld still explains something, and calling it stale would be the same mistake twice.
 	const drifted = [...diff.drift, ...diff.held];
 	const gates = [
-		['the tuple diff', diff.drift],
+		[`the ${SURFACE} column against the registrations`, column.drift],
+		['the tuple diff against tscode', diff.drift],
 		['reasons with nothing left to explain', staleReasons(rows, drifted)],
-		['ids the sibling answers that this map does not declare', unknown.map(id => finding('undeclared', id, '(not in KEYMAP)', [...fork.get(id).chords].join(' · '), undefined))],
+		['ids tscode answers that this map does not declare', unknown.map(id => finding('undeclared', id, '(not in KEYMAP)', [...theirs.get(id).chords].join(' · '), undefined))],
 		['dangling rules', dangling(rows, registered)]
 	];
 	const listed = [
 		['values the scan could not read', held],
-		['the guard, spelled both ways', guardSpellings(rows, fork)],
-		['the keep-set hazard', keepSetHazards(rows, upstream, keptById)],
-		['extra chords', extraChords(rows, upstream)]
+		['the guard, spelled both ways', guardSpellings(rows, theirs)],
+		['the keep-set hazard', keepSetHazards(rows, here, keptById)],
+		['extra chords', extraChords(rows, here)]
 	];
 
 	for (const [title, findings] of gates) {

@@ -387,15 +387,16 @@ class MenuImpl implements IMenu {
 		// Rebuild this menu whenever the menu registry reports an event for this MenuId.
 		// This usually happen while code and extensions are loaded and affects the over
 		// structure of the menu
-		const rebuildMenuSoon = new RunOnceScheduler(() => {
+		const rebuildMenu = () => {
 			this._menuInfo.refresh();
 			this._onDidChange.fire({ menu: this, isStructuralChange: true, isEnablementChange: true, isToggleChange: true });
-		}, options.eventDebounceDelay);
-		this._disposables.add(rebuildMenuSoon);
+		};
+		const rebuildMenuSoon = options.eventDebounceDelay === 0 ? undefined : new RunOnceScheduler(rebuildMenu, options.eventDebounceDelay);
+		if (rebuildMenuSoon) { this._disposables.add(rebuildMenuSoon); }
 		this._disposables.add(MenuRegistry.onDidChangeMenu(e => {
 			for (const id of this._menuInfo.allMenuIds) {
 				if (e.has(id)) {
-					rebuildMenuSoon.schedule();
+					if (rebuildMenuSoon) { rebuildMenuSoon.schedule(); } else { rebuildMenu(); }
 					break;
 				}
 			}
@@ -440,13 +441,14 @@ class MenuImpl implements IMenu {
 			}));
 		};
 
-		this._onDidChange = new DebounceEmitter({
+		const emitterOptions = {
 			// start/stop context key listener
 			onWillAddFirstListener: startLazyListener,
-			onDidRemoveLastListener: lazyListener.clear.bind(lazyListener),
-			delay: options.eventDebounceDelay,
-			merge
-		});
+			onDidRemoveLastListener: lazyListener.clear.bind(lazyListener)
+		};
+		this._onDidChange = options.eventDebounceDelay === 0
+			? new Emitter(emitterOptions)
+			: new DebounceEmitter({ ...emitterOptions, delay: options.eventDebounceDelay, merge });
 		this.onDidChange = this._onDidChange.event;
 	}
 

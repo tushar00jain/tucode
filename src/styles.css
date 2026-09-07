@@ -1,10 +1,18 @@
 /*---------------------------------------------------------------------------------------------
- *  The CSS entry point. Widget and part styles are co-located in `src/vs` and arrive
- *  through the module graph; only the document shell around them belongs here.
- *  Upstream's `vs/workbench/browser/media/style.css` already resets `body`.
+ *  The CSS entry point. Editor widget styles are co-located in `src/vs` and arrive through the
+ *  module graph; only the empty document shell around the widget belongs here.
  *--------------------------------------------------------------------------------------------*/
 
 html {
+	height: 100%;
+	width: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+}
+
+body,
+.tucode-editor-host {
 	height: 100%;
 	width: 100%;
 	margin: 0;

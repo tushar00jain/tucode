@@ -1,38 +1,71 @@
 # Architecture
 
-Tscode keeps VS Code's editor and workbench frontend, with Explorer, search,
-source control, a Sapling smartlog, and terminals. Tauri's OS webview replaces
-Electron's bundled Chromium; a Rust backend replaces the Node backend.
-There is no extension host, language server, debugger, or shared process.
-Bundled themes, icons, and syntax grammars remain as data-only assets.
+Two frontends reuse VS Code's services and models, with a Rust backend for OS work.
+Documents, undo, saves, search, editor groups, and commands stay in VS Code's JavaScript.
+Each frontend creates its own service graph; Rust is not the owner of all application state.
+There is no extension host, language server, debugger, or Electron runtime.
+
+## Frontends and communication
 
 ```text
-+--------------------------------------+
-| VS Code frontend in the OS webview   |
-+--------------------------------------+
-          | requests     ^ responses / events
-          | IChannel over Tauri invoke / listen
-          v              |
-+--------------------------------------+
-| Rust backend, hosted by Tauri        |
-| Files, watching, search, SCM, PTYs   |
-+--------------------------------------+
-          | OS APIs / subprocesses
-          v
-+--------------------------------------+
-| Filesystem, shells, Git / Sapling    |
-+--------------------------------------+
+TERMINAL: one Node process                    Separate Rust child
++------------------------------------+       +--------------------------+
+| VS Code services / models          | <---> | tscode-host              |
+|      ^ direct JS calls / events    |       | Files, watching, search, |
+|      v                             |       | Git / Sapling, PTYs      |
+| TUI bridge: DOM shim + native ANSI  |       +--------------------------+
++------------------------------------+         IChannel requests/events
+       ^ stdin keys   | ANSI output            as JSON lines over stdio
+       |              v
+             User's terminal
+
+MAC: WebKit content process                        Native Mac app process
++------------------------------------+             +-----------------------------+
+| VS Code services / models          | < Wry IPC > | Rust backend (Tokio workers)|
+|                                    |    JSON     +-----------------------------+
+|                                    |             +-----------------------------+
+|                                    | <---------> | Swift / AppKit: Apple bridge|
++-----------------+------------------+ UI state /  | Native controls / input     |
+                  ^                    input       +-----------------------------+
+                  | direct JS calls / events
+                  v
++------------------------------------+
+| HTML bridge: VS Code editor panes  |
++------------------------------------+
 ```
 
-The frontend keeps VS Code's service interfaces; a Tauri transport connects them
-to Rust through six channels: `file`, `watch`, `search`, `scm`, `sl`, and `pty`.
-Upstream frontend code is copied wherever possible; adapters live under `tauri/`.
-See [UPGRADING.md](UPGRADING.md) for maintaining the copied source.
+- **Terminal:** VS Code services and the TUI run together in Node, without a browser.
+- **Mac UI:** Swift owns windows, menus, input, and layout. Wry hosts the editor WebView.
+- **Mac backend:** Rust starts with the app and runs on Tokio workers, keeping both UI event loops responsive.
+- **Window lifecycle:** Each Mac editor has its own backend connection. Closing and shutdown are asynchronous.
+- **Shared IPC:** Both frontends use the same `IChannel` adapter and Rust JSON dispatcher for files, watching, search, Git/Sapling, and PTYs.
 
-## Required watcher settings
+## What paints each surface
 
-Add these exclusions to **tscode's** `settings.json`, then restart the app.
-Settings in ordinary VS Code alone do not configure tscode.
+| Surface | Terminal | Mac |
+| --- | --- | --- |
+| Explorer | VS Code view/tree + shared path filter -> DOM shim -> ANSI | VS Code model/filter/sorter/compact tree + shared path filter -> serialized rows -> AppKit |
+| Text / diff editor | VS Code models -> native presentation controllers -> ANSI | Actual VS Code browser editor panes -> HTML |
+| Editor tabs | VS Code group state/events -> ANSI | VS Code group state/events -> serialized tabs -> AppKit |
+| Changes / SCM | VS Code view/controller/tree/row renderers -> DOM shim -> ANSI | VS Code SCM models/tree adapters -> serialized rows -> AppKit |
+| SCM history graph | VS Code history view model -> native ANSI graph | Not implemented |
+| Sapling smartlog | Sapling graph data/text renderer -> ANSI | Not implemented |
+| Search | VS Code view/widget/controller/tree + shared result filter -> DOM shim -> ANSI | VS Code Search model/QueryBuilder + shared query/result controllers -> serialized rows -> AppKit |
+| Quick Input / Quick Open | Upstream QuickInputService/controller/list and providers -> DOM shim -> ANSI | Native IQuickInputService adapter + upstream providers -> Apple bridge -> AppKit |
+| One-shot pick / input | Shared upstream operations with terminal input widgets | Same operations with native input widgets |
+| Dialogs | VS Code DialogsModel -> shared handler -> terminal picker | Same model/handler -> native picker |
+| Markdown preview | Document + Markdown tokens + syntax tokenization -> ANSI | Existing MarkdownPreviewEditor + VS Code renderers -> HTML |
+| Embedded terminal | VS Code PTY service + xterm terminal state -> ANSI | Native terminal surface not implemented |
+
+- Adapters handle input, layout, focus, and paint; VS Code APIs own state changes.
+- Mac uses shared modules independently of the TUI. Native rows reflect VS Code models.
+- Entry points: `src/main.ts` / `src/boot.ts` (terminal); `src/macWebMain.ts` and `mac/` (Mac).
+
+## Source control watchers
+
+Repository watches use the application's `files.watcherExclude` settings. For Sapling
+repositories, these patterns exclude bookkeeping writes that can trigger repeated
+smartlog reads. Configure them in tucode's settings, then restart the app:
 
 ```json
 {
@@ -43,5 +76,6 @@ Settings in ordinary VS Code alone do not configure tscode.
 }
 ```
 
-These exclude Sapling bookkeeping writes that can trigger repeated smartlog reads.
-Metadata-only changes may require a manual refresh of the Sapling view.
+Metadata-only changes may require a manual Sapling refresh. File-change refreshes
+reuse the discovered repositories; explicit refreshes and workspace-folder changes
+also run discovery.

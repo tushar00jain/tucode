@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use notify::event::{EventKind, ModifyKind, RenameMode};
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -39,6 +39,15 @@ pub const DEFAULT_MAX_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Called with each coalesced batch. The channel layer bridges it to an event.
 pub type ChangeHandler = Arc<dyn Fn(Vec<FileChange>) + Send + Sync + 'static>;
+
+// FSEvents does not deliver changes in every filesystem namespace macOS apps
+// can open (per-user temporary trees are a common example). Polling is the
+// reliable backend there; the debounce below still presents the same event
+// contract to callers. Other platforms retain notify's native backend.
+#[cfg(target_os = "macos")]
+type PlatformWatcher = notify::PollWatcher;
+#[cfg(not(target_os = "macos"))]
+type PlatformWatcher = notify::RecommendedWatcher;
 
 /// Port of stock's `IWatchOptions`, plus the two debounce knobs.
 #[derive(Debug, Clone)]
@@ -73,7 +82,7 @@ impl Default for WatchOptions {
 
 /// A live watch. Dropping it unregisters the OS watch and stops the debouncer.
 pub struct FileWatcher {
-    _watcher: RecommendedWatcher,
+    _watcher: PlatformWatcher,
     debouncer: tokio::task::JoinHandle<()>,
 }
 
@@ -93,7 +102,13 @@ impl FileWatcher {
         opts: WatchOptions,
         handler: ChangeHandler,
     ) -> FsResult<Self> {
-        let root = resource.as_path().to_path_buf();
+        // FSEvents reports canonical paths. In particular, a watch registered
+        // through macOS's `/var` alias receives `/private/var` resources; use
+        // the existing directory's canonical spelling so the watch and its
+        // events share one root. Workspace validation has already checked the
+        // resolved path before it reaches this boundary.
+        let root = dunce::canonicalize(resource.as_path())
+            .unwrap_or_else(|_| resource.as_path().to_path_buf());
         let excludes = build_globset(&root, &opts.excludes)?;
         let includes = build_globset(&root, &opts.includes)?;
 
@@ -101,7 +116,11 @@ impl FileWatcher {
         let correlation_id = opts.correlation_id;
         let filter = opts.filter;
 
-        let mut watcher = RecommendedWatcher::new(
+        let config = Config::default();
+        #[cfg(target_os = "macos")]
+        let config = config.with_poll_interval(Duration::from_millis(500));
+
+        let mut watcher = PlatformWatcher::new(
             move |result: Result<notify::Event, notify::Error>| {
                 let Ok(event) = result else { return };
 
@@ -116,7 +135,7 @@ impl FileWatcher {
                     let _ = tx.send(change);
                 }
             },
-            Config::default(),
+            config,
         )
         .map_err(|error| FsError::unknown(format!("watcher setup failed: {error}")))?;
 

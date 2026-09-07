@@ -12,16 +12,13 @@ import { Selection } from '../../../../editor/common/core/selection.js';
 import { EndOfLineSequence, ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService, IResolvedTextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IProgress } from '../../../../platform/progress/common/progress.js';
-import { IEditorWorkerService } from '../../../../editor/common/services/editorWorker.js';
 import { IUndoRedoService, UndoRedoGroup, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { SingleModelEditStackElement, MultiModelEditStackElement } from '../../../../editor/common/model/editStack.js';
 import { ResourceMap } from '../../../../base/common/map.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ResourceTextEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { SnippetController2 } from '../../../../editor/contrib/snippet/browser/snippetController2.js';
 import { SnippetParser } from '../../../../editor/contrib/snippet/browser/snippetParser.js';
-import { ISnippetEdit } from '../../../../editor/contrib/snippet/browser/snippetSession.js';
 import { TextModelEditSource } from '../../../../editor/common/textModelEditSource.js';
 
 type ValidationResult = { canApply: true } | { canApply: false; reason: URI };
@@ -122,64 +119,6 @@ class ModelEditTask implements IDisposable {
 	}
 }
 
-class EditorEditTask extends ModelEditTask {
-
-	private readonly _editor: ICodeEditor;
-
-	constructor(modelReference: IReference<IResolvedTextEditorModel>, editor: ICodeEditor) {
-		super(modelReference);
-		this._editor = editor;
-	}
-
-	override getBeforeCursorState(): Selection[] | null {
-		return this._canUseEditor() ? this._editor.getSelections() : null;
-	}
-
-	override apply(reason?: TextModelEditSource): void {
-
-		// Check that the editor is still for the wanted model. It might have changed in the
-		// meantime and that means we cannot use the editor anymore (instead we perform the edit through the model)
-		if (!this._canUseEditor()) {
-			super.apply();
-			return;
-		}
-
-		if (this._edits.length > 0) {
-			const snippetCtrl = SnippetController2.get(this._editor);
-			if (snippetCtrl && this._edits.some(edit => edit.insertAsSnippet)) {
-				// some edit is a snippet edit -> use snippet controller and ISnippetEdits
-				const snippetEdits: ISnippetEdit[] = [];
-				for (const edit of this._edits) {
-					if (edit.range && edit.text !== null) {
-						snippetEdits.push({
-							range: Range.lift(edit.range),
-							template: edit.insertAsSnippet ? edit.text : SnippetParser.escape(edit.text),
-							keepWhitespace: edit.keepWhitespace
-						});
-					}
-				}
-				snippetCtrl.apply(snippetEdits, { undoStopBefore: false, undoStopAfter: false });
-
-			} else {
-				// normal edit
-				this._edits = this._edits
-					.map(this._transformSnippetStringToInsertText, this) // mixed edits (snippet and normal) -> no snippet mode
-					.sort((a, b) => Range.compareRangesUsingStarts(a.range, b.range));
-				this._editor.executeEdits(reason, this._edits);
-			}
-		}
-		if (this._newEol !== undefined) {
-			if (this._editor.hasModel()) {
-				this._editor.getModel().pushEOL(this._newEol);
-			}
-		}
-	}
-
-	private _canUseEditor(): boolean {
-		return this._editor?.getModel()?.uri.toString() === this.model.uri.toString();
-	}
-}
-
 export class BulkTextEdits {
 
 	private readonly _edits = new ResourceMap<ResourceTextEdit[]>();
@@ -187,13 +126,14 @@ export class BulkTextEdits {
 	constructor(
 		private readonly _label: string,
 		private readonly _code: string,
-		private readonly _editor: ICodeEditor | undefined,
+		// Not kept: `EditorEditTask` was the only reader and this fork cut it with the code editor.
+		// The parameter stays so `bulkEditService.ts`'s positional `createInstance` is unchanged.
+		_editor: ICodeEditor | undefined,
 		private readonly _undoRedoGroup: UndoRedoGroup,
 		private readonly _undoRedoSource: UndoRedoSource | undefined,
 		private readonly _progress: IProgress<void>,
 		private readonly _token: CancellationToken,
 		edits: ResourceTextEdit[],
-		@IEditorWorkerService private readonly _editorWorker: IEditorWorkerService,
 		@IModelService private readonly _modelService: IModelService,
 		@ITextModelService private readonly _textModelResolverService: ITextModelService,
 		@IUndoRedoService private readonly _undoRedoService: IUndoRedoService
@@ -231,48 +171,10 @@ export class BulkTextEdits {
 
 		for (const [key, edits] of this._edits) {
 			const promise = this._textModelResolverService.createModelReference(key).then(async ref => {
-				let task: ModelEditTask;
-				let makeMinimal = false;
-				if (this._editor?.getModel()?.uri.toString() === ref.object.textEditorModel.uri.toString()) {
-					task = new EditorEditTask(ref, this._editor);
-					makeMinimal = true;
-				} else {
-					task = new ModelEditTask(ref);
-				}
+				const task: ModelEditTask = new ModelEditTask(ref);
 				tasks.push(task);
 
-
-				if (!makeMinimal) {
-					edits.forEach(task.addEdit, task);
-					return;
-				}
-
-				// group edits by type (snippet, metadata, or simple) and make simple groups more minimal
-
-				const makeGroupMoreMinimal = async (start: number, end: number) => {
-					const oldEdits = edits.slice(start, end);
-					const newEdits = await this._editorWorker.computeMoreMinimalEdits(ref.object.textEditorModel.uri, oldEdits.map(e => e.textEdit), false);
-					if (!newEdits) {
-						oldEdits.forEach(task.addEdit, task);
-					} else {
-						// All edits in the group have the same version id since we group the edits
-						// in the constructor by the resource URI.
-						const versionId = oldEdits[0]?.versionId;
-						newEdits.forEach(edit => task.addEdit(new ResourceTextEdit(ref.object.textEditorModel.uri, edit, versionId, undefined)));
-					}
-				};
-
-				let start = 0;
-				let i = 0;
-				for (; i < edits.length; i++) {
-					if (edits[i].textEdit.insertAsSnippet || edits[i].metadata) {
-						await makeGroupMoreMinimal(start, i); // grouped edits until now
-						task.addEdit(edits[i]); // this edit
-						start = i + 1;
-					}
-				}
-				await makeGroupMoreMinimal(start, i);
-
+				edits.forEach(task.addEdit, task);
 			});
 			promises.push(promise);
 		}

@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as nls from '../../../../nls.js';
+import { forcedExpandRecursively } from './searchTreeExpansion.js';
+export { forcedExpandRecursively } from './searchTreeExpansion.js';
 import { ICommandHandler } from '../../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { WorkbenchCompressibleAsyncDataTree, WorkbenchListFocusContextKey } from '../../../../platform/list/browser/listService.js';
@@ -250,29 +252,6 @@ async function expandAll(accessor: ServicesAccessor) {
  * Recursively expand all nodes in the search results tree that are a child of `element`
  * If `element` is not provided, it is the root node.
  */
-export async function forcedExpandRecursively(
-	viewer: WorkbenchCompressibleAsyncDataTree<ISearchResult, RenderableMatch, void>,
-	element: RenderableMatch | undefined
-) {
-	if (element) {
-		if (!viewer.hasNode(element)) {
-			return;
-		}
-		await viewer.expand(element, true);
-	}
-
-	const children = viewer.getNode(element)?.children;
-
-	if (children) {
-		for (const child of children) {
-			if (isSearchResult(child.element)) {
-				throw Error('SearchResult should not be a child of a RenderableMatch');
-			}
-			forcedExpandRecursively(viewer, child.element);
-		}
-	}
-}
-
 function clearSearchResults(accessor: ServicesAccessor) {
 	const viewsService = accessor.get(IViewsService);
 	const searchView = getSearchView(viewsService);

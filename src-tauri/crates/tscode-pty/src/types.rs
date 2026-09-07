@@ -215,6 +215,10 @@ pub enum ProcessProperty {
 #[serde(rename_all = "camelCase")]
 pub struct ProcessReadyEvent {
     pub pid: u32,
+    /// `forkpty` makes the Unix child a session/process-group leader. Exposing that owned group
+    /// avoids reconstructing process ownership with an ambient process-table query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_group_id: Option<u32>,
     pub cwd: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub windows_pty: Option<ProcessReadyWindowsPty>,

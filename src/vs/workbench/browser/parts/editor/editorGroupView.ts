@@ -224,7 +224,9 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 			this.createContainerContextMenu();
 
 			// Watermark & shortcuts
-			this._register(this.instantiationService.createInstance(EditorGroupWatermark, this.element));
+			if (options?.showWatermark !== false) {
+				this._register(this.instantiationService.createInstance(EditorGroupWatermark, this.element));
+			}
 
 			// Progress bar
 			this.progressBar = this._register(new ProgressBar(this.element, defaultProgressBarStyles));

@@ -1,14 +1,14 @@
-# End-to-end tests
+# Terminal end-to-end tests
 
-The Windows/WebView2 harness launches the built app and drives it with Playwright over CDP.
-It creates temporary repositories and isolated settings, rejects stale binaries, and cleans up its own processes.
-Run from the repository root with Node 24, Rust, Git, Sapling (`sl`), and PowerShell available:
+The harness sends keys to the TUI over stdin and reads its ANSI output through xterm/headless.
+It waits for the app's settle response between steps and creates isolated fixtures under `.build/test-fixtures/`.
+Run from the repository root with Node, Rust, Git, and Sapling (`sl`) installed:
 
 ```sh
 npm install
-npm run build:fast
-npm run e2e             # editor, source control watcher, and terminal sessions
-npm run e2e:terminal    # terminal session only
+npm run e2e           # builds the frontend and Rust host, then runs all terminal workflows
+npm run test:host     # tests the Rust channels over stdio
 ```
 
-Tests live in `suites/`; shared setup and UI probes live in `lib/`. Set `TSCODE_E2E_WINDOW_POSITION=screen` to watch a run.
+Set `TUCODE_E2E_DUMP=1` to print captured frames. Tests live in `test/e2e/`; shared drivers and probes are in `lib/`.
+Mac uses a separate [foreground XCUITest harness](../../mac/README.md).

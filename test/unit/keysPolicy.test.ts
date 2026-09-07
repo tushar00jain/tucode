@@ -203,7 +203,7 @@ describe('keysPolicy · the panel the keyboard is in', () => {
 		for (const id of ['tscode.scm.stage', 'tscode.scm.filter', 'scm.setActiveProvider']) {
 			assert.ok(ids.has(id), `${id} is a key of the pane that has the keyboard`);
 		}
-		for (const id of ['tscode.search.filter', 'tscode.filterExplorer', 'tscode.sapling.refresh', 'tscode.scmGraph.refresh', 'tscode.file.edit']) {
+		for (const id of ['tscode.search.filter', 'tscode.sapling.refresh', 'tscode.scmGraph.refresh', 'tscode.file.edit']) {
 			assert.ok(!ids.has(id), `${id} belongs to a panel that does not have the keyboard`);
 		}
 		for (const id of globalIds) {

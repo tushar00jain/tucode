@@ -1,0 +1,1 @@
+{"files.exclude":{"hidden-native.txt":true},"explorer.sortOrder":"filesFirst","explorer.fileNesting.enabled":true,"explorer.fileNesting.patterns":{"*.ts":"${capture}.js"}}

@@ -6,19 +6,14 @@
 import * as nls from '../../../../nls.js';
 
 // base
-import * as browser from '../../../../base/browser/browser.js';
-import { BrowserFeatures, KeyboardSupport } from '../../../../base/browser/canIUse.js';
-import * as dom from '../../../../base/browser/dom.js';
-import { printKeyboardEvent, printStandardKeyboardEvent, StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
-import { mainWindow } from '../../../../base/browser/window.js';
-import { DeferredPromise, RunOnceScheduler } from '../../../../base/common/async.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { parse } from '../../../../base/common/json.js';
 import { IJSONSchema, TypeFromJsonSchema } from '../../../../base/common/jsonSchema.js';
 import { UserSettingsLabelProvider } from '../../../../base/common/keybindingLabels.js';
 import { KeybindingParser } from '../../../../base/common/keybindingParser.js';
-import { Keybinding, KeyCodeChord, ResolvedKeybinding, ScanCodeChord } from '../../../../base/common/keybindings.js';
-import { IMMUTABLE_CODE_TO_KEY_CODE, KeyCode, KeyCodeUtils, KeyMod, ScanCode, ScanCodeUtils } from '../../../../base/common/keyCodes.js';
+import { Keybinding, KeyCodeChord, ResolvedKeybinding } from '../../../../base/common/keybindings.js';
+import { IMMUTABLE_CODE_TO_KEY_CODE, KeyCode, KeyCodeUtils, ScanCode, ScanCodeUtils } from '../../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import * as objects from '../../../../base/common/objects.js';
 import { isMacintosh, OperatingSystem, OS } from '../../../../base/common/platform.js';
@@ -28,7 +23,7 @@ import { dirname } from '../../../../base/common/resources.js';
 import { ILocalizedString, isLocalizedString } from '../../../../platform/action/common/action.js';
 import { MenuRegistry } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
-import { ContextKeyExpr, ContextKeyExpression, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { ContextKeyExpr, ContextKeyExpression, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { FileOperation, IFileService } from '../../../../platform/files/common/files.js';
 import { Extensions, IJSONContributionRegistry } from '../../../../platform/jsonschemas/common/jsonContributionRegistry.js';
@@ -53,9 +48,7 @@ import { ExtensionMessageCollector, ExtensionsRegistry } from '../../extensions/
 import { IHostService } from '../../host/browser/host.js';
 import { IUserDataProfileService } from '../../userDataProfile/common/userDataProfile.js';
 import { IUserKeybindingItem, KeybindingIO, OutputBuilder } from '../common/keybindingIO.js';
-import { IKeyboard, INavigatorWithKeyboard } from './navigatorKeyboard.js';
 import { getAllUnboundCommands } from './unboundCommands.js';
-import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 
 function isValidContributedKeyBinding(keyBinding: ContributedKeyBinding, rejects: string[]): boolean {
 	if (!keyBinding) {
@@ -176,8 +169,6 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 	private _keyboardMapper: IKeyboardMapper;
 	private _cachedResolver: KeybindingResolver | null;
 	private userKeybindings: UserKeybindings;
-	private isComposingGlobalContextKey: IContextKey<boolean>;
-	private _keybindingHoldMode: DeferredPromise<void> | null;
 	private readonly _contributions: Array<{
 		readonly listener?: IDisposable;
 		readonly contribution: KeybindingsSchemaContribution;
@@ -199,8 +190,6 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 	) {
 		super(contextKeyService, commandService, telemetryService, notificationService, logService);
 
-		this.isComposingGlobalContextKey = contextKeyService.createKey(EditorContextKeys.isComposing.key, false);
-
 		this.kbsJsonSchema = new KeybindingsJsonSchema();
 		this.updateKeybindingsJsonSchema();
 
@@ -210,8 +199,8 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 			this.updateResolver();
 		}));
 
-		this._keybindingHoldMode = null;
 		this._cachedResolver = null;
+		this._register(KeybindingsRegistry.onDidChangeKeybindings(() => this.updateResolver()));
 
 		this.userKeybindings = this._register(new UserKeybindings(userDataProfileService, uriIdentityService, fileService, logService));
 		this.userKeybindings.initialize().then(() => {
@@ -237,30 +226,6 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 
 		this.updateKeybindingsJsonSchema();
 		this._register(extensionService.onDidRegisterExtensions(() => this.updateKeybindingsJsonSchema()));
-
-		this._register(Event.runAndSubscribe(dom.onDidRegisterWindow, ({ window, disposables }) => disposables.add(this._registerKeyListeners(window)), { window: mainWindow, disposables: this._store }));
-
-		this._register(browser.onDidChangeFullscreen(windowId => {
-			if (windowId !== mainWindow.vscodeWindowId) {
-				return;
-			}
-
-			const keyboard: IKeyboard | null = (<INavigatorWithKeyboard>navigator).keyboard;
-
-			if (BrowserFeatures.keyboard === KeyboardSupport.None) {
-				return;
-			}
-
-			if (browser.isFullscreen(mainWindow)) {
-				keyboard?.lock(['Escape']);
-			} else {
-				keyboard?.unlock();
-			}
-
-			// update resolver which will bring back all unbound keyboard shortcuts
-			this._cachedResolver = null;
-			this._onDidUpdateKeybindings.fire();
-		}));
 	}
 
 	public override dispose(): void {
@@ -268,40 +233,6 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 		this._contributions.length = 0;
 
 		super.dispose();
-	}
-
-	private _registerKeyListeners(window: Window): IDisposable {
-		const disposables = new DisposableStore();
-
-		// for standard keybindings
-		disposables.add(dom.addDisposableListener(window, dom.EventType.KEY_DOWN, (e: KeyboardEvent) => {
-			if (this._keybindingHoldMode) {
-				return;
-			}
-			this.isComposingGlobalContextKey.set(e.isComposing);
-			const keyEvent = new StandardKeyboardEvent(e);
-			this._log(`/ Received  keydown event - ${printKeyboardEvent(e)}`);
-			this._log(`| Converted keydown event - ${printStandardKeyboardEvent(keyEvent)}`);
-			const shouldPreventDefault = this._dispatch(keyEvent, keyEvent.target);
-			if (shouldPreventDefault) {
-				keyEvent.preventDefault();
-			}
-			this.isComposingGlobalContextKey.set(false);
-		}));
-
-		// for single modifier chord keybindings (e.g. shift shift)
-		disposables.add(dom.addDisposableListener(window, dom.EventType.KEY_UP, (e: KeyboardEvent) => {
-			this._resetKeybindingHoldMode();
-			this.isComposingGlobalContextKey.set(e.isComposing);
-			const keyEvent = new StandardKeyboardEvent(e);
-			const shouldPreventDefault = this._singleModifierDispatch(keyEvent, keyEvent.target);
-			if (shouldPreventDefault) {
-				keyEvent.preventDefault();
-			}
-			this.isComposingGlobalContextKey.set(false);
-		}));
-
-		return disposables;
 	}
 
 	public registerSchemaContribution(contribution: KeybindingsSchemaContribution): IDisposable {
@@ -407,26 +338,13 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 		return JSON.stringify(info, null, '\t');
 	}
 
-	public override enableKeybindingHoldMode(commandId: string): Promise<void> | undefined {
-		if (this._currentlyDispatchingCommandId !== commandId) {
-			return undefined;
-		}
-		this._keybindingHoldMode = new DeferredPromise<void>();
-		const focusTracker = dom.trackFocus(dom.getWindow(undefined));
-		const listener = focusTracker.onDidBlur(() => this._resetKeybindingHoldMode());
-		this._keybindingHoldMode.p.finally(() => {
-			listener.dispose();
-			focusTracker.dispose();
-		});
-		this._log(`+ Enabled hold-mode for ${commandId}.`);
-		return this._keybindingHoldMode.p;
-	}
-
-	private _resetKeybindingHoldMode(): void {
-		if (this._keybindingHoldMode) {
-			this._keybindingHoldMode?.complete();
-			this._keybindingHoldMode = null;
-		}
+	/**
+	 * Hold mode is a key held down between a keydown and its keyup, and a terminal reports no
+	 * keyup at all — so `undefined`, "hold mode could not be enabled", is the only answer that
+	 * does not hand a caller a promise nothing can ever resolve.
+	 */
+	public override enableKeybindingHoldMode(_commandId: string): Promise<void> | undefined {
+		return undefined;
 	}
 
 	public override customKeybindingsCount(): number {
@@ -440,11 +358,16 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 
 	protected _getResolver(): KeybindingResolver {
 		if (!this._cachedResolver) {
-			const defaults = this._resolveKeybindingItems(KeybindingsRegistry.getDefaultKeybindings(), true);
+			const defaults = this._resolveKeybindingItems(this._getDefaultKeybindings(), true);
 			const overrides = this._resolveUserKeybindingItems(this.userKeybindings.keybindings, false);
 			this._cachedResolver = new KeybindingResolver(defaults, overrides, (str) => this._log(str));
 		}
 		return this._cachedResolver;
+	}
+
+	/** The platform spelling of defaults. Terminal frontends override this because their wire has Ctrl but no Meta. */
+	protected _getDefaultKeybindings(): IKeybindingItem[] {
+		return KeybindingsRegistry.getDefaultKeybindings();
 	}
 
 	protected _documentHasFocus(): boolean {
@@ -464,10 +387,6 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 				// This might be a removal keybinding item in user settings => accept it
 				result[resultLen++] = new ResolvedKeybindingItem(undefined, item.command, item.commandArgs, when, isDefault, item.extensionId, item.isBuiltinExtension);
 			} else {
-				if (this._assertBrowserConflicts(keybinding)) {
-					continue;
-				}
-
 				const resolvedKeybindings = this._keyboardMapper.resolveKeybinding(keybinding);
 				for (let i = resolvedKeybindings.length - 1; i >= 0; i--) {
 					const resolvedKeybinding = resolvedKeybindings[i];
@@ -496,65 +415,6 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 		}
 
 		return result;
-	}
-
-	private _assertBrowserConflicts(keybinding: Keybinding): boolean {
-		if (BrowserFeatures.keyboard === KeyboardSupport.Always) {
-			return false;
-		}
-
-		if (BrowserFeatures.keyboard === KeyboardSupport.FullScreen && browser.isFullscreen(mainWindow)) {
-			return false;
-		}
-
-		for (const chord of keybinding.chords) {
-			if (!chord.metaKey && !chord.altKey && !chord.ctrlKey && !chord.shiftKey) {
-				continue;
-			}
-
-			const modifiersMask = KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift;
-
-			let partModifiersMask = 0;
-			if (chord.metaKey) {
-				partModifiersMask |= KeyMod.CtrlCmd;
-			}
-
-			if (chord.shiftKey) {
-				partModifiersMask |= KeyMod.Shift;
-			}
-
-			if (chord.altKey) {
-				partModifiersMask |= KeyMod.Alt;
-			}
-
-			if (chord.ctrlKey && OS === OperatingSystem.Macintosh) {
-				partModifiersMask |= KeyMod.WinCtrl;
-			}
-
-			if ((partModifiersMask & modifiersMask) === (KeyMod.CtrlCmd | KeyMod.Alt)) {
-				if (chord instanceof ScanCodeChord && (chord.scanCode === ScanCode.ArrowLeft || chord.scanCode === ScanCode.ArrowRight)) {
-					// console.warn('Ctrl/Cmd+Arrow keybindings should not be used by default in web. Offender: ', kb.getHashCode(), ' for ', commandId);
-					return true;
-				}
-				if (chord instanceof KeyCodeChord && (chord.keyCode === KeyCode.LeftArrow || chord.keyCode === KeyCode.RightArrow)) {
-					// console.warn('Ctrl/Cmd+Arrow keybindings should not be used by default in web. Offender: ', kb.getHashCode(), ' for ', commandId);
-					return true;
-				}
-			}
-
-			if ((partModifiersMask & modifiersMask) === KeyMod.CtrlCmd) {
-				if (chord instanceof ScanCodeChord && (chord.scanCode >= ScanCode.Digit1 && chord.scanCode <= ScanCode.Digit0)) {
-					// console.warn('Ctrl/Cmd+Num keybindings should not be used by default in web. Offender: ', kb.getHashCode(), ' for ', commandId);
-					return true;
-				}
-				if (chord instanceof KeyCodeChord && (chord.keyCode >= KeyCode.Digit0 && chord.keyCode <= KeyCode.Digit9)) {
-					// console.warn('Ctrl/Cmd+Num keybindings should not be used by default in web. Offender: ', kb.getHashCode(), ' for ', commandId);
-					return true;
-				}
-			}
-		}
-
-		return false;
 	}
 
 	public resolveKeybinding(kb: Keybinding): ResolvedKeybinding[] {

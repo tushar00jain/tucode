@@ -26,6 +26,9 @@ import { CopyPasteController } from '../../dropOrPasteInto/browser/copyPasteCont
 
 const CLIPBOARD_CONTEXT_MENU_GROUP = '9_cutcopypaste';
 
+// Embedded WKWebView delegates shortcuts to the host, like the native editor.
+const useNativeClipboardKeybindings = platform.isNative || browser.isWebkitWebView;
+
 const supportsCut = (platform.isNative || document.queryCommandSupported('cut'));
 const supportsCopy = (platform.isNative || document.queryCommandSupported('copy'));
 // Firefox only supports navigator.clipboard.readText() in browser extensions.
@@ -44,7 +47,7 @@ export const CutAction = supportsCut ? registerCommand(new MultiCommand({
 	kbOpts: (
 		// Do not bind cut keybindings in the browser,
 		// since browsers do that for us and it avoids security prompts
-		platform.isNative ? {
+		useNativeClipboardKeybindings ? {
 			primary: KeyMod.CtrlCmd | KeyCode.KeyX,
 			win: { primary: KeyMod.CtrlCmd | KeyCode.KeyX, secondary: [KeyMod.Shift | KeyCode.Delete] },
 			weight: KeybindingWeight.EditorContrib
@@ -81,7 +84,7 @@ export const CopyAction = supportsCopy ? registerCommand(new MultiCommand({
 	kbOpts: (
 		// Do not bind copy keybindings in the browser,
 		// since browsers do that for us and it avoids security prompts
-		platform.isNative ? {
+		useNativeClipboardKeybindings ? {
 			primary: KeyMod.CtrlCmd | KeyCode.KeyC,
 			win: { primary: KeyMod.CtrlCmd | KeyCode.KeyC, secondary: [KeyMod.CtrlCmd | KeyCode.Insert] },
 			weight: KeybindingWeight.EditorContrib
@@ -121,7 +124,7 @@ export const PasteAction = supportsPaste ? registerCommand(new MultiCommand({
 	kbOpts: (
 		// Do not bind paste keybindings in the browser,
 		// since browsers do that for us and it avoids security prompts
-		platform.isNative ? {
+		useNativeClipboardKeybindings ? {
 			primary: KeyMod.CtrlCmd | KeyCode.KeyV,
 			win: { primary: KeyMod.CtrlCmd | KeyCode.KeyV, secondary: [KeyMod.Shift | KeyCode.Insert] },
 			linux: { primary: KeyMod.CtrlCmd | KeyCode.KeyV, secondary: [KeyMod.Shift | KeyCode.Insert] },

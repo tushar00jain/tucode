@@ -1,69 +1,50 @@
-# Upgrading upstream code
+# Upgrading tscode
 
-Use PowerShell from the repository root, starting with a clean working tree.
-`vendor` stores pristine upstream files; merging it updates our patched copies.
-The copy scripts alone skip edited files, so they are not a complete upgrade.
+Tucode's `vendor` branch stores complete, unmodified tscode snapshots. Update VS Code,
+Sapling, and Vim in tscode first, then import that committed tree here. The inherited
+copy scripts do not replace this step: they skip files that tucode has edited.
 
-## VS Code
+Start with a clean working tree. Fetch the published branches and inspect any local
+`vendor` commits before choosing the previous snapshot as the parent. The example
+below assumes `origin/vendor` is the latest snapshot; `tscode_checkout` can point to
+any existing tscode checkout. Fetching its Git objects does not copy source files
+into a temporary worktree.
 
-1. Check out the desired VS Code revision locally. Create an upgrade branch and a
-   separate vendor worktree (reuse it if present; if needed, first create the local
-   branch with `git branch vendor origin/vendor`).
-
-```powershell
-$upstream = (Resolve-Path "<vscode-checkout>").Path
-$vendorTree = "../tscode-vendor"
-git switch -c upgrade-vscode
-git worktree add $vendorTree vendor
-./scripts/copy-from-vscode.ps1 -VSCodeRoot $upstream
-./scripts/copy-extensions.ps1 -VSCodeRoot $upstream
+```sh
+git fetch origin
+tscode_checkout=../tscode
+tscode_revision=$(git -C "$tscode_checkout" rev-parse HEAD)
+git fetch --no-tags "$tscode_checkout" "$tscode_revision"
+vendor_commit=$(git commit-tree "$tscode_revision^{tree}" -p origin/vendor \
+  -m "vendor: tscode @ $tscode_revision")
+# Create vendor if absent; otherwise advance it without discarding local commits.
+if git show-ref --verify --quiet refs/heads/vendor; then
+  git merge-base --is-ancestor vendor "$vendor_commit" && \
+    git update-ref refs/heads/vendor "$vendor_commit" "$(git rev-parse vendor)"
+else
+  git branch vendor "$vendor_commit"
+fi
+git diff --exit-code "$tscode_revision^{tree}" 'vendor^{tree}'
+git merge --no-commit --no-ff vendor
 ```
 
-2. Populate the vendor worktree with the upstream originals of the selected files:
+Resolve conflicts while preserving tucode's terminal and Mac entry points, adapters,
+package commands, and tests. Review changes to upstream modules used by local ports;
+those adaptations do not update automatically. Keep Quick Input's shared controller
+and its TUI paint-invalidation and list-viewport hooks.
 
-```powershell
-. ./scripts/vscode-source.ps1
-foreach ($pair in @(@('src/vs', 'src/vs'), @('resources/extensions', 'extensions'))) {
-  $localTree = (Resolve-Path $pair[0]).Path
-  Get-ChildItem $localTree -Recurse -File | ForEach-Object {
-    $rel = $_.FullName.Substring($localTree.Length + 1)
-    $source = Join-Path (Join-Path $upstream $pair[1]) $rel
-    if (Test-Path -LiteralPath $source -PathType Leaf) {
-      $dest = Join-Path (Join-Path $vendorTree $pair[0]) $rel
-      New-Item -ItemType Directory -Force (Split-Path -Parent $dest) | Out-Null
-      [IO.File]::WriteAllBytes($dest, (Get-PortableBytes -Path $source))
-    }
-  }
-}
-Copy-Item "$upstream/LICENSE.txt", "$upstream/ThirdPartyNotices.txt" .
+The documentation generators are shared with tscode. Regenerate tucode's three HTML
+pages against the new local snapshot; do not retain tscode's `docs/keyboard/keys.html`:
+
+```sh
+npm run provenance -- --rev vendor --keys
 ```
 
-3. Review both diffs. Remove obsolete VS Code files from the vendor worktree;
-   preserve `.gitattributes`, Sapling, and Vim files. Keep our adapters off `vendor`.
-   Commit the copy-script changes before merging; stage new files on both branches.
+Run both typechecks and relevant unit, host, and terminal tests. For Rust or Mac
+changes, also use `npm run test:rust`, `mac/package.sh`, and the relevant foreground
+workflows described in [Mac development](../mac/README.md). Install dependencies when
+the manifests change. Commit the resolved merge with the normal repository hooks.
 
-```powershell
-git add -A
-git commit -m "Prepare VS Code upgrade"
-git -C $vendorTree add -A
-git -C $vendorTree commit -m "vendor: vscode @ $(git -C $upstream rev-parse HEAD)"
-git merge vendor
-```
-
-4. Resolve conflicts while preserving our feature cuts and adapters. Keep our
-   `src/vs/nls.ts`. Review changes to upstream sources cited by `src/main.ts`,
-   `tauri/` adapters, and Rust modules: those ports do not merge automatically.
-5. Run `npm install`, `npm run typecheck`, `npm run test:unit`, `npm run test:rust`,
-   and `npm run tauri:build`; run `npm run e2e` on Windows. Commit the reviewed result.
-   The test scripts currently require Node 24; the transform-types flag is gone in Node 26.
-
-## Sapling and Vim
-
-- Sapling: run `./scripts/copy-from-sapling.ps1 -SaplingRoot <checkout>` on the upgrade
-  branch. On `vendor`, replace `contrib/sapling/common/{render,renderText}.ts` under
-  `src/vs/workbench/` with the originals from `addons/isl/src/dag/`, using
-  `Get-PortableBytes`. Commit as `vendor: sapling @ <sha>` and merge as above;
-  review the generated CSS/excerpts and our Sapling adapters, then run the checks.
-- Copy Sapling source only from its MIT-licensed `addons/` tree; retain licenses and headers.
-- Update the Vim engine and Monaco adapter together, recording both revisions on `vendor`.
-  Preserve local import changes, especially the adapter's `monacoEditorApi.js` import.
+Push both `vendor` and the branch containing the merge when publishing the upgrade.
+The generators default to `origin/vendor`; `--rev vendor` measures the local snapshot
+before it is pushed. `--upstream <checkout>` instead measures an existing working tree.

@@ -1,8 +1,8 @@
-//! Workspace root registry and path validation — spec Security item 3.
+//! Application data and workspace path authorization.
 //!
-//! Our `#[tauri::command]` entry points are not gated by Tauri's capability
-//! system, so this is the only thing standing between a compromised webview and
-//! the whole filesystem. Every public entry point in this crate therefore takes
+//! Channel entry points have no OS capability gate. Application startup grants
+//! access to user data; the file channel grants user-selected workspace roots.
+//! Every public entry point in this crate therefore takes
 //! a [`ValidatedPath`], which can only be produced by [`WorkspaceRoots::validate`].
 
 use std::path::{Component, Path, PathBuf};
@@ -12,7 +12,7 @@ use crate::blocking::run as blocking;
 use crate::error::{FsError, FsResult};
 use crate::paths::{is_within, paths_equal};
 
-/// A path that has been checked to live inside a registered workspace root.
+/// A path authorized through application data or a registered workspace root.
 ///
 /// Construction is private to this module, so a `&ValidatedPath` parameter is a
 /// compile-time proof that the check ran.
@@ -73,6 +73,7 @@ impl std::fmt::Display for ValidatedPath {
 #[derive(Debug, Clone, Default)]
 pub struct WorkspaceRoots {
     roots: Arc<RwLock<Vec<PathBuf>>>,
+    application_roots: Arc<RwLock<Vec<PathBuf>>>,
 }
 
 impl WorkspaceRoots {
@@ -95,12 +96,28 @@ impl WorkspaceRoots {
         Ok(canonical)
     }
 
+    /// Application-owned data is addressed through its own directory, independently
+    /// of open workspaces. User-created symlinks inside it retain normal filesystem
+    /// semantics; they do not authorize direct access to the target's other paths.
+    pub async fn add_application_root(&self, path: impl AsRef<Path>) -> FsResult<PathBuf> {
+        let canonical = canonicalize(path.as_ref().to_path_buf()).await?;
+        let mut roots = self
+            .application_roots
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !roots.contains(&canonical) {
+            roots.push(canonical.clone());
+        }
+        Ok(canonical)
+    }
+
     /// Removes a previously registered root. Paths under it stop validating
     /// immediately; watchers already running are the caller's to dispose.
     pub fn remove_root(&self, path: impl AsRef<Path>) {
         let path = path.as_ref();
-        self.write()
-            .retain(|root| !paths_equal(root, path) && !paths_equal(root, &lexical_normalize(path)));
+        self.write().retain(|root| {
+            !paths_equal(root, path) && !paths_equal(root, &lexical_normalize(path))
+        });
     }
 
     #[must_use]
@@ -110,12 +127,14 @@ impl WorkspaceRoots {
 
     /// Validates `path` against the registered roots.
     ///
-    /// Three stages, each closing a different escape:
+    /// Application paths keep user-created symlink semantics after lexical
+    /// validation. Workspace paths additionally require their resolved target
+    /// to remain inside a registered workspace root:
     /// 1. reject empty paths, NUL bytes and relative paths outright;
-    /// 2. resolve `.` / `..` lexically, so a traversal cannot be smuggled past
-    ///    the prefix check;
-    /// 3. canonicalize the deepest *existing* ancestor and re-check, so a
-    ///    symlink planted inside a root cannot point out of it.
+    /// 2. resolve `.` / `..` lexically;
+    /// 3. canonicalize the deepest *existing* ancestor and check it against
+    ///    the canonical roots, so both platform aliases (`/var` and
+    ///    `/private/var` on macOS) and symlinks are compared like with like.
     ///
     /// Stage 3 is a check against the filesystem as it is at validation time; a
     /// symlink swapped in between here and the syscall would defeat it. Closing
@@ -137,6 +156,15 @@ impl WorkspaceRoots {
         }
 
         let normalized = lexical_normalize(path);
+        if self
+            .application_roots
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(|root| is_within(&normalized, root))
+        {
+            return Ok(ValidatedPath(normalized));
+        }
         let roots = self.roots();
         if roots.is_empty() {
             return Err(FsError::no_permissions(
@@ -144,11 +172,12 @@ impl WorkspaceRoots {
             ));
         }
 
-        self.assert_within(&normalized, &roots)?;
-
         let resolved = resolve_existing_prefix(normalized.clone()).await?;
         self.assert_within(&resolved, &roots)?;
 
+        // Preserve the caller's spelling after checking its resolved spelling.
+        // Provider operations such as `stat` must still observe the final
+        // symlink itself rather than silently acting on its target.
         Ok(ValidatedPath(normalized))
     }
 
@@ -274,6 +303,17 @@ mod tests {
         assert!(roots.validate(tmp.path().join("a/b.txt")).await.is_ok());
     }
 
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn accepts_the_var_alias_of_a_canonical_private_var_root() {
+        let tmp = TempDir::new().unwrap();
+        let canonical = dunce::canonicalize(tmp.path()).unwrap();
+        let aliased = Path::new("/").join(canonical.strip_prefix("/private").unwrap());
+        let roots = roots_on(tmp.path()).await;
+
+        assert!(roots.validate(aliased).await.is_ok());
+    }
+
     #[tokio::test]
     async fn accepts_a_target_that_does_not_exist_yet() {
         let tmp = TempDir::new().unwrap();
@@ -335,5 +375,32 @@ mod tests {
 
         let roots = roots_on(&root).await;
         assert!(roots.validate(root.join("link/secret.txt")).await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn application_data_follows_links_without_granting_the_target_directory() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("User");
+        let outside = tmp.path().join("dotfiles");
+        std::fs::create_dir(&home).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("settings.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(outside.join("settings.json"), home.join("settings.json"))
+            .unwrap();
+        let roots = WorkspaceRoots::new();
+        let home = roots.add_application_root(home).await.unwrap();
+        assert!(roots.validate(home.join("settings.json")).await.is_ok());
+        assert!(roots
+            .validate(home.join("profiles/new/settings.json"))
+            .await
+            .is_ok());
+        assert!(roots.validate(outside.join("settings.json")).await.is_err());
+        assert!(roots
+            .validate(home.join("../dotfiles/settings.json"))
+            .await
+            .is_err());
+        roots.remove_root(&home);
+        assert!(roots.validate(home.join("settings.json")).await.is_ok());
     }
 }

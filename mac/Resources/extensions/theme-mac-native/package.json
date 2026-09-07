@@ -1,0 +1,12 @@
+{
+  "name": "theme-mac-native",
+  "publisher": "tucode",
+  "version": "1.0.0",
+  "engines": { "vscode": "*" },
+  "displayName": "Mac Native File Icons",
+  "description": "Native macOS file and folder icons in AppKit views.",
+  "categories": ["Themes"],
+  "contributes": {
+    "iconThemes": [{ "id": "mac-native", "label": "Mac Native", "path": "./icon-theme.json" }]
+  }
+}

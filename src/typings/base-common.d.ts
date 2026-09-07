@@ -20,13 +20,13 @@ declare global {
 
 	// --- timeout / interval (available in all contexts, but different signatures in node.js vs web)
 
-	interface TimeoutHandle { readonly _: never; /* this is a trick that seems needed to prevent direct number assignment */ }
-	type Timeout = TimeoutHandle;
-	function setTimeout(handler: string | Function, timeout?: number, ...arguments: any[]): Timeout;
-	function clearTimeout(timeout: Timeout | undefined): void;
-
-	function setInterval(callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]): Timeout;
-	function clearInterval(timeout: Timeout | undefined): void;
+	// Upstream declares these itself because it builds for the browser and for node.js off one
+	// tree, and neither `lib`'s handle type is right for both. This fork only runs on node, so
+	// `@types/node`'s globals are the right ones and re-declaring them only produced a second,
+	// incompatible `Timeout`. `NodeJS.Timeout` is an object type, so it still prevents the direct
+	// number assignment the `TimeoutHandle` brand existed to prevent.
+	type TimeoutHandle = NodeJS.Timeout;
+	type Timeout = NodeJS.Timeout;
 
 
 	// --- error

@@ -148,6 +148,7 @@ export class PtyService extends Disposable implements IPtyService {
 		private readonly _reconnectConstants: IReconnectConstants,
 		private readonly _simulatedLatency: number,
 		private readonly _channel: IChannel,
+		private readonly _fileChannel: IChannel,
 		private readonly _fileService: IFileService
 	) {
 		super();
@@ -304,7 +305,7 @@ export class PtyService extends Disposable implements IPtyService {
 			throw new Error('Attempt to create a process when attach object was provided');
 		}
 		const id = ++this._lastPtyId;
-		const process = new TauriTerminalProcess(shellLaunchConfig, cwd, cols, rows, env, executableEnv, options, this._channel, this._fileService, this._logService, this._productService);
+		const process = new TauriTerminalProcess(shellLaunchConfig, cwd, cols, rows, env, executableEnv, options, this._channel, this._fileChannel, this._fileService, this._logService, this._productService);
 		const processLaunchOptions: IPersistentTerminalProcessLaunchConfig = {
 			env,
 			executableEnv,

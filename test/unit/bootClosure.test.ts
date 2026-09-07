@@ -23,6 +23,7 @@ import { describe, it } from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const bootFile = resolve(root, 'src/main.ts');
+const sharedBootFile = resolve(root, 'src/boot.ts');
 
 /**
  * A static `import`/`export … from` that survives to runtime. `import type` is erased and so is
@@ -66,10 +67,17 @@ const closure = bootClosure();
 
 describe('boot closure', () => {
 
-	it('walks the boot file to a closure of the size it has', () => {
-		// A guard on the walk itself rather than on the tree: an expression that stopped matching
-		// would otherwise turn every assertion below into a vacuous pass over an empty set.
-		assert.ok(closure.length > 2000, `closure is ${closure.length} files`);
+	it('walks past the boot file into the tree it imports', () => {
+		// A guard on the walk itself rather than on the tree, and stated against the one number the
+		// walk cannot fake: the boot file's own relative imports. A closure the size of that list is
+		// a walk that never recursed — which a bare "not empty" check passes, because the list is a
+		// hundred and sixty files on its own. Every module below the first hop is what the
+		// assertions after this one are about, so the closure has to be a multiple of it.
+		const direct = [...readFileSync(bootFile, 'utf8').matchAll(importExpression)]
+			.filter(([, specifier]) => specifier.startsWith('.')).length;
+
+		assert.ok(direct > 0, 'the boot file has no relative imports — the expression stopped matching');
+		assert.ok(closure.length > direct * 2, `closure is ${closure.length} files over ${direct} direct imports`);
 		assert.ok(closure.includes('src/vs/workbench/services/keybinding/tauri/keybindingService.ts'));
 	});
 
@@ -110,5 +118,15 @@ describe('boot closure', () => {
 	 */
 	it('does not reach the standalone editor services', () => {
 		assert.deepEqual(closure.filter(file => file.includes('editor/standalone')), []);
+	});
+
+	it('composes the real opener once in shared boot', () => {
+		const shared = readFileSync(sharedBootFile, 'utf8');
+		const tui = readFileSync(bootFile, 'utf8');
+
+		assert.match(shared, /registerSingleton\(IOpenerService, OpenerService, InstantiationType\.Delayed\)/);
+		assert.match(shared, /editor\/browser\/services\/openerService\.js/);
+		assert.doesNotMatch(tui, /registerSingleton\(IOpenerService/);
+		assert.equal(closure.filter(file => file === 'src/vs/editor/browser/services/openerService.ts').length, 1);
 	});
 });

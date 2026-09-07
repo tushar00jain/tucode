@@ -3,8 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen as listenToTauriEvent } from '@tauri-apps/api/event';
+import { invoke, listen as listenToTauriEvent } from '../node/ipc.host.js';
 import { raceCancellationError } from '../../../common/async.js';
 import { VSBuffer } from '../../../common/buffer.js';
 import { CancellationToken } from '../../../common/cancellation.js';
@@ -13,8 +12,11 @@ import { Emitter, Event } from '../../../common/event.js';
 import { IDisposable, toDisposable } from '../../../common/lifecycle.js';
 import { generateUuid } from '../../../common/uuid.js';
 import { createFileSystemProviderError, FileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { IChannel, IChannelClient, IServerChannel } from '../common/ipc.js';
+// `type`, because a Node frontend imports this file before anything has compiled the
+// tree, and `ipc.ts` — which `mainProcessService.ts` pulls in for `IPCServer` — carries
+// `@memoize`, which type stripping cannot handle. Every name here is an interface.
+import type { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
+import type { IChannel, IChannelClient, IServerChannel } from '../common/ipc.js';
 
 /**
  * Mirrors `subscription_event_name` in `src-tauri/crates/tscode-app/src/channel.rs`. Both sides
@@ -108,9 +110,9 @@ function reviveBuffers(value: any): any {
 }
 
 /**
- * An `IChannel` over Tauri's `invoke`. Framing, request matching and
- * serialization are Tauri's, so unlike the other transports this needs no
- * protocol on top — see `TSCODE-PORT.md`, *The porting seam*.
+ * An `IChannel` over `invoke`. Framing, request matching and serialization
+ * belong to the transport under it — `ipc.host.ts` here, Tauri in tscode — so
+ * unlike the other transports this needs no protocol on top.
  */
 class TauriChannel implements IChannel {
 

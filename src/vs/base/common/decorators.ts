@@ -79,10 +79,13 @@ export function debounce<T>(delay: number, reducer?: IDebounceReducer<T>, initia
 				args = [this[resultKey]];
 			}
 
-			this[timerKey] = setTimeout(() => {
+			// A debounce must not keep the terminal process alive. Browser timers have no
+			// unref method; retain their numeric handle so subsequent calls still cancel it.
+			const timer = this[timerKey] = setTimeout(() => {
 				fn.apply(this, args);
 				this[resultKey] = initialValueProvider ? initialValueProvider() : undefined;
 			}, delay);
+			(timer as Timeout & { unref?(): void }).unref?.();
 		};
 	});
 }

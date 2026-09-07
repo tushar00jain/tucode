@@ -27,18 +27,18 @@
 //!
 //! `userDataDir` is tscode's as well. Stock's desktop build learns where user
 //! data lives from its own main process; this port's renderer has no such
-//! source, and the directory has to exist and be a registered root before the
-//! first settings read, so the backend both creates it and answers with it.
+//! source. Application startup creates and authorizes it before any connection
+//! can read settings; this channel only returns that shared location.
 //!
 //! `chmod` is tscode's too: stock's shell-integration injection runs in the pty
 //! host and calls `fs.chmod` there, but ours runs in the renderer, which has no
 //! filesystem but this channel.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
 use tscode_fs::{
     DeleteOptions, DiskFileSystemProvider, OpenOptions, OverwriteOptions, ReadOptions,
     WorkspaceRoots, WriteOptions,
@@ -57,7 +57,8 @@ pub struct FileChannel {
     provider: Arc<DiskFileSystemProvider>,
     roots: Arc<WorkspaceRoots>,
     watch: Arc<WatchChannel>,
-    app: AppHandle,
+    user_data_home: PathBuf,
+    handles: Mutex<HashSet<tscode_fs::FileHandle>>,
 }
 
 impl FileChannel {
@@ -65,13 +66,48 @@ impl FileChannel {
         provider: Arc<DiskFileSystemProvider>,
         roots: Arc<WorkspaceRoots>,
         watch: Arc<WatchChannel>,
-        app: AppHandle,
+        user_data_home: PathBuf,
     ) -> Self {
-        Self { provider, roots, watch, app }
+        Self {
+            provider,
+            roots,
+            watch,
+            user_data_home,
+            handles: Mutex::new(HashSet::new()),
+        }
+    }
+
+    pub async fn close_handles(&self) {
+        let handles = std::mem::take(
+            &mut *self
+                .handles
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        for handle in handles {
+            if let Err(error) = self.provider.close(handle).await {
+                log::warn!("closing window file handle: {error}");
+            }
+        }
+    }
+
+    fn owned_handle(&self, args: &Args) -> Result<tscode_fs::FileHandle, ChannelError> {
+        let handle = args.at(0)?;
+        if !self
+            .handles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&handle)
+        {
+            return Err(ChannelError::unavailable(
+                "file handle does not belong to this connection",
+            ));
+        }
+        Ok(handle)
     }
 
     /// Stock's `transformIncoming`: a `UriComponents` argument becomes the path
-    /// the provider will act on, having proved it is inside a workspace root.
+    /// the provider will act on, having authorized its application or workspace path.
     async fn incoming(&self, args: &Args, index: usize) -> Result<tscode_fs::ValidatedPath, ChannelError> {
         let resource: UriComponents = args.at(index)?;
         self.roots
@@ -145,18 +181,27 @@ impl FileChannel {
         let resource = self.incoming(args, 0).await?;
         let opts: OpenOptions = args.opt(1)?;
         let handle = self.provider.open(&resource, opts).await.map_err(from_fs_error)?;
+        self.handles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(handle);
         json(&handle)
     }
 
     async fn close(&self, args: &Args) -> Result<Value, ChannelError> {
-        self.provider.close(args.at(0)?).await.map_err(from_fs_error)?;
+        let handle = self.owned_handle(args)?;
+        self.handles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&handle);
+        self.provider.close(handle).await.map_err(from_fs_error)?;
         Ok(Value::Null)
     }
 
     /// Stock allocates the buffer server-side and answers `[VSBuffer, number]`;
     /// the crate returns the bytes it read, so the count is their length.
     async fn read(&self, args: &Args) -> Result<Value, ChannelError> {
-        let handle = args.at(0)?;
+        let handle = self.owned_handle(args)?;
         let pos = args.at(1)?;
         let length = args.at(2)?;
 
@@ -171,7 +216,7 @@ impl FileChannel {
     }
 
     async fn write(&self, args: &Args) -> Result<Value, ChannelError> {
-        let handle = args.at(0)?;
+        let handle = self.owned_handle(args)?;
         let pos = args.at(1)?;
         let data: IncomingBuffer = args.at(2)?;
         let offset: usize = args.at(3)?;
@@ -251,13 +296,12 @@ impl FileChannel {
 
     //#region Workspace roots (not stock)
 
-    /// Opens a folder to the backend: it becomes a `WorkspaceRoots` entry *and*
-    /// an `assetProtocol` scope entry, in one call.
+    /// Opens a folder to the backend: it becomes a `WorkspaceRoots` entry, and
+    /// the canonical root comes back as a URI.
     ///
-    /// The two are one operation because a root the webview may name but not
-    /// load — or load but not name — is a half-open folder, and a call site that
-    /// did one and forgot the other would fail in a way that looks like a
-    /// permissions bug in the other half. Returns the canonical root as a URI.
+    /// tscode also widened the webview's `assetProtocol` scope here, in the same
+    /// call, so a folder could not end up nameable but not loadable. There is no
+    /// webview and no asset protocol, so registration is the whole of it.
     async fn register_workspace_root(&self, args: &Args) -> Result<Value, ChannelError> {
         let resource: UriComponents = args.at(0)?;
         let root = self.register_root(resource.to_fs_path()).await?;
@@ -265,66 +309,17 @@ impl FileChannel {
         json(&UriComponents::file(&root))
     }
 
-    /// Registers `path` and widens the asset scope to it, answering with the
-    /// canonical root. Every caller goes through here so the pair cannot come
-    /// apart: a root registered without the scope is a folder the webview may
-    /// name but not load.
+    /// Registers `path`, answering with the canonical root.
     async fn register_root(&self, path: PathBuf) -> Result<PathBuf, ChannelError> {
-        let root = self.roots.add_root(path).await.map_err(from_fs_error)?;
-
-        self.app
-            .asset_protocol_scope()
-            .allow_directory(&root, true)
-            .map_err(|error| {
-                self.roots.remove_root(&root);
-                ChannelError::no_permissions(format!(
-                    "cannot widen the asset scope to {}: {error}",
-                    root.display()
-                ))
-            })?;
-
-        Ok(root)
+        self.roots.add_root(path).await.map_err(from_fs_error)
     }
 
-    /// The directory `vscode-userdata:` is backed by — `settings.json`,
-    /// `keybindings.json`, the caches and the profile state under it.
-    ///
-    /// It is created before it is registered, because a root is canonicalized
-    /// as it is stored and canonicalization needs the directory to exist. The
-    /// shape is stock's: the platform's config directory for the app, then
-    /// `User`, which is what `%APPDATA%\Code\User` is on a stock desktop
-    /// install.
-    ///
-    /// `TSCODE_USER_DATA_DIR` overrides it, and is this port's stand-in for
-    /// stock's `--user-data-dir`: the app parses no command line at all, and
-    /// the end-to-end suite has to run against user data that is not the
-    /// developer's own.
-    async fn user_data_dir(&self) -> Result<Value, ChannelError> {
-        let home = match std::env::var_os("TSCODE_USER_DATA_DIR") {
-            Some(override_path) => PathBuf::from(override_path),
-            None => self
-                .app
-                .path()
-                .app_config_dir()
-                .map_err(|error| {
-                    ChannelError::no_permissions(format!("cannot resolve the app config directory: {error}"))
-                })?
-                .join("User"),
-        };
-
-        tokio::fs::create_dir_all(&home).await.map_err(|error| {
-            ChannelError::no_permissions(format!("cannot create {}: {error}", home.display()))
-        })?;
-
-        let root = self.register_root(home).await?;
-
-        json(&UriComponents::file(&root))
+    /// User data is initialized once by the application, independently of workspace roots.
+    fn user_data_dir(&self) -> Result<Value, ChannelError> {
+        json(&UriComponents::file(&self.user_data_home))
     }
 
-    /// Revokes the workspace root. The asset scope stays widened: Tauri's scope
-    /// has no removal, and its `forbid_directory` is a separate deny list that
-    /// wins over `allow` forever, so using it would make the folder unopenable
-    /// for the rest of the process.
+    /// Revokes the workspace root.
     fn unregister_workspace_root(&self, args: &Args) -> Result<Value, ChannelError> {
         let resource: UriComponents = args.at(0)?;
         self.roots.remove_root(resource.to_fs_path());
@@ -367,7 +362,7 @@ impl ServerChannel for FileChannel {
             "chmod" => self.chmod(&args).await,
             "watch" => self.watch.watch(&args).await,
             "unwatch" => self.watch.unwatch(&args),
-            "userDataDir" => self.user_data_dir().await,
+            "userDataDir" => self.user_data_dir(),
             "registerWorkspaceRoot" => self.register_workspace_root(&args).await,
             "unregisterWorkspaceRoot" => self.unregister_workspace_root(&args),
             "workspaceRoots" => self.workspace_roots(),

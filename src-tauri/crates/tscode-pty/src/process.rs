@@ -49,7 +49,7 @@ use std::time::Duration;
 use portable_pty::{
     native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
 use crate::decoder::Utf8Decoder;
@@ -227,6 +227,11 @@ pub struct TerminalProcess {
     /// elapses, which is stock's `dispose()` on trigger.
     delayed_resizer: Arc<Mutex<Option<DelayedResize>>>,
     disposed: Arc<AtomicBool>,
+    /// Goes true once the supervisor has ended and everything it held has been
+    /// dropped — the child killed and the pty closed. `shutdown` only *asks* for
+    /// that, so this is what a caller shutting the process down waits on. `None`
+    /// until `start`, because a terminal that never spawned has nothing to reap.
+    reaped: Mutex<Option<watch::Receiver<bool>>>,
 }
 
 impl TerminalProcess {
@@ -289,6 +294,7 @@ impl TerminalProcess {
             running: Arc::new(RwLock::new(None)),
             delayed_resizer: Arc::new(Mutex::new(delayed_resizer)),
             disposed: Arc::new(AtomicBool::new(false)),
+            reaped: Mutex::new(None),
         }
     }
 
@@ -459,9 +465,13 @@ impl TerminalProcess {
         // anything can kill.
         self.sink.on_process_ready(ProcessReadyEvent {
             pid,
+            process_group_id: (!cfg!(windows)).then_some(pid),
             cwd: self.initial_cwd.clone(),
             windows_pty: get_windows_pty(),
         });
+
+        let (reaped, watcher) = watch::channel(false);
+        *self.reaped.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(watcher);
 
         tokio::spawn(supervise(
             Supervisor {
@@ -481,6 +491,7 @@ impl TerminalProcess {
             },
             running,
             controls,
+            reaped,
         ));
 
         Ok(())
@@ -579,6 +590,31 @@ impl TerminalProcess {
             return;
         };
         let _ = running.control.send(Control::Shutdown { immediate });
+    }
+
+    /// Resolves once the child is dead and the pty closed — the other half of
+    /// [`shutdown`](Self::shutdown), which only asks.
+    ///
+    /// Stock has no counterpart: its pty host is a process of its own that
+    /// outlives the window it was shutting terminals down for, so nothing there
+    /// ever needed to know when the last one had gone. Here the host *is* the
+    /// process that exits, and one that exits first orphans the shell and its
+    /// `conhost.exe --headless` — see the architecture doc's `L` section.
+    ///
+    /// A terminal that never started, or has already been reaped, resolves at
+    /// once: both leave nothing running.
+    pub async fn wait_until_reaped(&self) {
+        let watcher = self
+            .reaped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let Some(mut watcher) = watcher else {
+            return;
+        };
+        // An error is the supervisor's sender dropped without a send, which is a
+        // task that has gone — and a task that has gone holds nothing either.
+        let _ = watcher.wait_for(|reaped| *reaped).await;
     }
 
     /// Port of `getInitialCwd()`.
@@ -902,6 +938,7 @@ async fn supervise(
     mut state: Supervisor,
     running: Arc<Running>,
     mut controls: mpsc::UnboundedReceiver<Control>,
+    reaped: watch::Sender<bool>,
 ) {
     loop {
         let close_deadline = state.close_deadline;
@@ -985,6 +1022,12 @@ async fn supervise(
     }
 
     kill(&state, &running).await;
+
+    // `_kill` has cleared the process's own handle, so this is the last one: dropping it closes the
+    // master, and closing the master is what ends the pseudoconsole and its `conhost.exe
+    // --headless`. Only then is the terminal reaped, and only then may a shutdown return.
+    drop(running);
+    reaped.send_replace(true);
 }
 
 /// Port of `_kill()`.

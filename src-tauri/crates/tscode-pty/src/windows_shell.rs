@@ -17,7 +17,7 @@ use regex::Regex;
 use tokio::sync::mpsc;
 
 use crate::decorators::{sleep_until, Debounce};
-use crate::ps::{list_processes, ProcessItem};
+use crate::ps::{list_processes, log_tree_failure, ProcessItem};
 use crate::types::TerminalShellType;
 
 /// How long `checkShell` waits before looking, to give the shell time to
@@ -175,7 +175,7 @@ async fn shell_name(root_process_id: u32) -> Option<String> {
     match tree {
         Ok(Ok(tree)) => Some(traverse_tree(Some(&tree))),
         Ok(Err(error)) => {
-            log::debug!("WindowsShellHelper: Fetching process tree failed: {error}");
+            log_tree_failure("WindowsShellHelper", &error);
             None
         }
         Err(error) => {

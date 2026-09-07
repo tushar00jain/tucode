@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 2,
+  "rule": "Frontend inputs normalize into neutral immutable projection protocols; frontend adapters may not duplicate shared behavior.",
+  "serviceSearch": {
+    "query": "IViewsService|IViewDescriptorService under src/boot.ts and src/main.ts",
+    "result": "The non-DOM boot uses one registry-backed neutral controller because browser ViewsService/ViewDescriptorService require browser workbench layout and pane composites.",
+    "consequence": "Container membership, ordering, filtering, opening, context and generation ownership are shared; the TUI projects immutable navigator records."
+  },
+  "frontendAdapterDeltas": [],
+  "modules": [
+    {
+      "source": "src/workbench/input.ts",
+      "classification": "boundary-normalization",
+      "status": "removed",
+      "consumers": [
+        "src/tui/terminal/input.ts"
+      ],
+      "action": "Terminal IKey/IMouse now live beside VT decoding."
+    },
+    {
+      "source": "src/workbench/keyboard.ts",
+      "classification": "boundary-normalization",
+      "status": "removed",
+      "consumers": [
+        "src/tui/workbench/workbench.ts",
+        "src/tui/workbench/commands.ts"
+      ],
+      "action": "Terminal layout inference returned to the TUI keyboard adapter. The"
+    },
+    {
+      "source": "src/workbench/listNavigation.ts",
+      "classification": "parallel-behavior",
+      "status": "removed",
+      "consumers": [
+        "src/tui/workbench/pane.ts",
+        "test/unit/listNavigation.test.ts"
+      ],
+      "action": "The shared index transition and its unit test were deleted."
+    },
+    {
+      "source": "src/workbench/commands.ts",
+      "classification": "parallel-shim",
+      "status": "removed",
+      "consumers": [
+        "src/tui/workbench/commands.ts",
+        "src/tui/workbench/workbench.ts",
+        "src/tui/editor/*",
+        "src/tui/views/*"
+      ],
+      "action": "The compatibility copy was deleted. Registration remains at the existing TUI command/keybinding boundary."
+    },
+    {
+      "source": "src/workbench/paneContainers.ts",
+      "classification": "parallel-state",
+      "status": "neutral-shared",
+      "consumers": [
+        "src/tui/workbench/workbench.ts"
+      ],
+      "action": "One neutral generation-owned container controller reads IViewContainersRegistry/IViewsRegistry and publishes immutable navigator snapshots. TUI projects those records to ANSI and Mac reconciles them into"
+    }
+  ],
+  "minimalSharedPolicy": [
+    {
+      "policy": "tucode command registration and command-hint metadata",
+      "location": "src/tui/workbench/commands.ts",
+      "reason": "The non-DOM boot has no IViewsService/IWorkbenchLayoutService command target, so the existing callback target remains until those standard services are mounted."
+    }
+  ]
+}

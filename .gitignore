@@ -1,18 +1,34 @@
 node_modules/
-dist/
-.vite/
 
-# Tauri build output
+# TypeScript build output — `tsconfig.build.json` emits the boot and the host tests here
+out/
+dist-mac/
+
+# Project-local build products.
+.build/
+mac/.build/
+mac/.swiftpm/
+
+# Rust build output
 src-tauri/target/
-src-tauri/apps/*/gen/
+
+# Optional JSON output from running the provenance classifier directly.
+docs/provenance/tree.json
 
 .DS_Store
 *.local
 .env
 .env.*
+*.swp
 
 # Machine-specific: redirects the Cargo target dir off the system drive.
 src-tauri/.cargo/config.toml
 
-# Optional provenance JSON output
-docs/provenance/tree.json
+# The packaged macOS runtime vendors only the libuv sources required to build
+# plus the three upstream files touched by Electron's pinned patch.
+third_party/libuv-1.52.1/docs/**
+!third_party/libuv-1.52.1/docs/src/
+!third_party/libuv-1.52.1/docs/src/loop.rst
+third_party/libuv-1.52.1/test/**
+!third_party/libuv-1.52.1/test/test-embed.c
+!third_party/libuv-1.52.1/test/test-list.h

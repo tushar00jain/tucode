@@ -1,12 +1,15 @@
 #!/bin/sh
-# The gates that run on every commit. None of them is spelled out here: `dup`'s scan paths live in
-# package.json, `dup:tauri`'s are discovered by scripts/dup-tauri.mjs, and the checkout `keymap`
-# measures against is resolved by the script — so the hook and the manual runs cannot drift apart.
+# The duplication gates that run on every commit. Neither is spelled out here: `dup`'s scan paths
+# live in package.json and `dup:tauri`'s are discovered by scripts/dup-tauri.mjs, so the hook and
+# the manual runs cannot drift apart.
 #
-# The keymap gate is the keyboard's half: it fails on a measured divergence with no written reason,
-# and on a reason with no divergence left to explain. It **skips** where there is no sibling
-# checkout to measure against, which is the ordinary clone and must not be a blocked commit.
+# `keymap -- --gate` is run by hand, alongside the instruments under `docs/provenance/`. The reason
+# is no longer anything about how it resolves a checkout: it measures against a sibling tscode
+# admitted by that checkout's own `package.json` name, so a clone under any directory name either
+# measures or says out loud that it skipped. It is out of the hook because **switching an instrument
+# from triage to a gate is a standing rule and therefore the user's call**, and because what it
+# reports today is a first run's worth of readings against tscode's registrations rather than a list
+# of defects. A gate goes on after an instrument has been believed, not before.
 set -e
 npm run --silent dup
 npm run --silent dup:tauri
-npm run --silent keymap -- --gate

@@ -1,0 +1,39 @@
+/* Registers existing actions whose editor, history and Quick Input services the Mac shell mounts. */
+import '../vs/workbench/browser/parts/editor/editorQuickAccess.contribution.js';
+import { registerAction2 } from '../vs/platform/actions/common/actions.js';
+import {
+	CloseAllEditorsAction, CloseLeftEditorsInGroupAction, CloseEditorInAllGroupsAction, RevertAndCloseEditorAction,
+	OpenNextEditor, OpenPreviousEditor, OpenNextEditorInGroup, OpenPreviousEditorInGroup,
+	OpenFirstEditorInGroup, OpenLastEditorInGroup, ReopenClosedEditorAction,
+	OpenNextRecentlyUsedEditorAction, OpenPreviousRecentlyUsedEditorAction,
+	OpenNextRecentlyUsedEditorInGroupAction, OpenPreviousRecentlyUsedEditorInGroupAction,
+	ShowAllEditorsByAppearanceAction, ShowAllEditorsByMostRecentlyUsedAction, ShowEditorsInActiveGroupByMostRecentlyUsedAction,
+	QuickAccessPreviousRecentlyUsedEditorAction, QuickAccessLeastRecentlyUsedEditorAction,
+	QuickAccessPreviousRecentlyUsedEditorInGroupAction, QuickAccessLeastRecentlyUsedEditorInGroupAction,
+	QuickAccessPreviousEditorFromHistoryAction, FocusActiveGroupAction,
+	NavigateForwardAction, NavigateBackwardsAction, NavigatePreviousAction,
+	NavigateForwardInEditsAction, NavigateBackwardsInEditsAction, NavigatePreviousInEditsAction, NavigateToLastEditLocationAction,
+	NavigateForwardInNavigationsAction, NavigateBackwardsInNavigationsAction, NavigatePreviousInNavigationsAction, NavigateToLastNavigationLocationAction,
+	MoveEditorLeftInGroupAction, MoveEditorRightInGroupAction, MoveEditorToStartAction, MoveEditorToEndAction
+} from '../vs/workbench/browser/parts/editor/editorActions.js';
+import { registerCloseEditorCommands, registerOpenEditorAtIndexCommands, registerEditorMoveCopyCommand } from '../vs/workbench/browser/parts/editor/editorCommands.js';
+
+export const macEditorActions = [
+	CloseAllEditorsAction, CloseLeftEditorsInGroupAction, CloseEditorInAllGroupsAction, RevertAndCloseEditorAction,
+	OpenNextEditor, OpenPreviousEditor, OpenNextEditorInGroup, OpenPreviousEditorInGroup,
+	OpenFirstEditorInGroup, OpenLastEditorInGroup, ReopenClosedEditorAction,
+	OpenNextRecentlyUsedEditorAction, OpenPreviousRecentlyUsedEditorAction,
+	OpenNextRecentlyUsedEditorInGroupAction, OpenPreviousRecentlyUsedEditorInGroupAction,
+	ShowAllEditorsByAppearanceAction, ShowAllEditorsByMostRecentlyUsedAction, ShowEditorsInActiveGroupByMostRecentlyUsedAction,
+	QuickAccessPreviousRecentlyUsedEditorAction, QuickAccessLeastRecentlyUsedEditorAction,
+	QuickAccessPreviousRecentlyUsedEditorInGroupAction, QuickAccessLeastRecentlyUsedEditorInGroupAction,
+	QuickAccessPreviousEditorFromHistoryAction, FocusActiveGroupAction,
+	NavigateForwardAction, NavigateBackwardsAction, NavigatePreviousAction,
+	NavigateForwardInEditsAction, NavigateBackwardsInEditsAction, NavigatePreviousInEditsAction, NavigateToLastEditLocationAction,
+	NavigateForwardInNavigationsAction, NavigateBackwardsInNavigationsAction, NavigatePreviousInNavigationsAction, NavigateToLastNavigationLocationAction,
+	MoveEditorLeftInGroupAction, MoveEditorRightInGroupAction, MoveEditorToStartAction, MoveEditorToEndAction
+];
+for (const action of macEditorActions) { registerAction2(action); }
+registerCloseEditorCommands();
+registerOpenEditorAtIndexCommands();
+registerEditorMoveCopyCommand();

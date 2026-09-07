@@ -40,6 +40,9 @@ type SCMTree = WorkbenchCompressibleAsyncDataTree<ISCMViewService, TreeElement, 
 registerViewRootCommand('tscode.scm.filter', VIEW_PANE_ID, localize('tscode.scm.filter', "Filter"));
 
 export class SCMViewRoot extends ViewRootController<TreeElement, ViewRootBox> {
+	get query(): string | undefined { return this.box.isOpen ? this.box.value : undefined; }
+	get rootPath(): string { return queryFor(this.viewRoot); }
+	whenSettled(): Promise<void> { return new Promise(resolve => this.queued(async () => resolve())); }
 
 	/** `/`'s two questions — which rows survive the query, and in what order — as one object. */
 	readonly filter: SCMFilter;

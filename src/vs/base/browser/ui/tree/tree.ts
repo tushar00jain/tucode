@@ -126,14 +126,23 @@ export interface ITreeListSpliceData<T, TFilterData> {
 }
 
 export interface ITreeModelSpliceEvent<T, TFilterData> {
+	/** The parent whose direct children changed. The root node is reported for a root splice. */
+	parentNode: ITreeNode<T, TFilterData>;
 	insertedNodes: ITreeNode<T, TFilterData>[];
 	deletedNodes: ITreeNode<T, TFilterData>[];
+}
+
+export interface ITreeVisibilityChange<T, TFilterData> {
+	readonly parentNode: ITreeNode<T, TFilterData>;
+	readonly removed: readonly { readonly node: ITreeNode<T, TFilterData>; readonly index: number }[];
+	readonly inserted: readonly { readonly node: ITreeNode<T, TFilterData>; readonly index: number }[];
 }
 
 export interface ITreeModel<T, TFilterData, TRef> {
 	readonly rootRef: TRef;
 
 	readonly onDidSpliceModel: Event<ITreeModelSpliceEvent<T, TFilterData>>;
+	readonly onDidChangeVisibility: Event<readonly ITreeVisibilityChange<T, TFilterData>[]>;
 	readonly onDidSpliceRenderedNodes: Event<ITreeListSpliceData<T, TFilterData>>;
 	readonly onDidChangeCollapseState: Event<ICollapseStateChangeEvent<T, TFilterData>>;
 	readonly onDidChangeRenderNodeCount: Event<ITreeNode<T, TFilterData>>;

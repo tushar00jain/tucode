@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isIOS, isLinux, isMacintosh, isMobile, isWeb, isWindows } from '../../../base/common/platform.js';
+import { isIOS, isLinux, isMacintosh, isMobile, isWeb, isWindows } from './contextPlatform.js';
 import { localize } from '../../../nls.js';
 import { RawContextKey } from './contextkey.js';
 

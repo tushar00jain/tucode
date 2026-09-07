@@ -25,7 +25,7 @@ function guiWhen(row: IKeymapRow): string {
 }
 
 /** The keys named as set, and every other key unset — what a `when` is evaluated against. */
-function context(values: Record<string, boolean>): IContext {
+function context(values: Record<string, unknown>): IContext {
 	return { getValue: <T>(key: string) => values[key] as T | undefined };
 }
 
@@ -35,7 +35,7 @@ function rowsWith(id: string): IKeymapRow[] {
 
 describe('keymap · the table', () => {
 	it('declares every command the keyboard answers a key with', () => {
-		assert.equal(new Set(KEYMAP.map(row => row.id)).size, 75);
+		assert.equal(new Set(KEYMAP.map(row => row.id)).size, 76);
 	});
 
 	it('gives every row at least one key, primary first', () => {
@@ -126,9 +126,12 @@ describe('keymap · the scope expansion', () => {
 	it('expands `editor:<id>` to the pane being active and its text having focus — not to `!inputFocus`', () => {
 		const when = guiWhen({ id: 'x', scope: 'editor:workbench.editors.files.textFileEditor', keys: [KeyCode.KeyX] });
 
-		assert.equal(when, ContextKeyExpr.and(
-			ContextKeyExpr.equals('activeEditor', 'workbench.editors.files.textFileEditor'),
-			ContextKeyExpr.has('editorTextFocus'))!.serialize());
+		const rule = ContextKeyExpr.deserialize(when)!;
+		for (const activeEditor of ['workbench.editors.files.textFileEditor', 'workbench.editors.textResourceEditor']) {
+			assert.equal(rule.evaluate(context({ activeEditor, editorTextFocus: true })), true);
+			assert.equal(rule.evaluate(context({ activeEditor, editorTextFocus: false })), false);
+		}
+		assert.equal(rule.evaluate(context({ activeEditor: 'workbench.editors.textDiffEditor', editorTextFocus: true })), false);
 		assert.ok(!when.includes('inputFocus'), 'an editor key guarded on `!inputFocus` could never fire');
 	});
 
@@ -209,10 +212,25 @@ describe('keymap · the scope expansion', () => {
 
 	it('guards `Enter` in the source control box on the box, and nothing wider', () => {
 		const [row] = rowsWith('tscode.scm.acceptInput');
+		const when = ContextKeyExpr.deserialize(guiWhen(row))!;
 
 		assert.deepEqual([...row.keys], [KeyCode.Enter]);
 		assert.equal(row.forwards, 'scm.acceptInput');
-		assert.equal(guiWhen(row), 'scmRepository');
+		assert.equal(when.evaluate(context({
+			focusedView: 'workbench.scm',
+			inputFocus: true,
+			scmRepository: true
+		})), true);
+		assert.equal(when.evaluate(context({
+			focusedView: 'workbench.explorer.fileView',
+			inputFocus: false,
+			scmRepository: true
+		})), false, 'an open repository must not consume Explorer Return');
+		assert.equal(when.evaluate(context({
+			focusedView: 'workbench.scm',
+			inputFocus: false,
+			scmRepository: true
+		})), false, 'the SCM list keeps Return while its input is not being edited');
 	});
 });
 
@@ -302,6 +320,8 @@ describe('keymap · the walls', () => {
 		const terminalOnly = KEYMAP.filter(row => row.only === 'tui').map(row => row.id);
 
 		assert.deepEqual([...new Set(terminalOnly)], [
+			'markdown.showPreviewToSide',
+			'markdown.showSource',
 			'tscode.editFile',
 			'tscode.quit',
 			'tscode.showContextMenu'
@@ -480,7 +500,6 @@ describe('keymap · what stands in for what', () => {
 			'tscode.focusEditorArea → workbench.action.focusActiveEditorGroup',
 			'tscode.sapling.refresh → sapling.refresh',
 			'tscode.scm.acceptInput → scm.acceptInput',
-			'tscode.scm.openChange → git.openChange',
 			'tscode.scm.refresh → git.refresh',
 			'tscode.scm.stage → git.stage',
 			'tscode.scm.unstage → git.unstage',
@@ -521,6 +540,7 @@ describe('keymap · what stands in for what', () => {
 			'view:workbench.view.search',
 			'view:workbench.sapling.smartlogView',
 			'view:terminal',
+			'view:workbench.editor.markdownPreview',
 			'editor:workbench.editors.files.textFileEditor',
 			'global'
 		]);

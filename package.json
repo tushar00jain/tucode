@@ -1,31 +1,31 @@
 {
-  "name": "tscode",
+  "name": "tucode",
   "private": true,
   "version": "0.0.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "build:fast": "node scripts/build-fast.mjs",
-    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node --test --test-concurrency=8 --experimental-transform-types --import ./test/unit/tsResolve.mjs \"test/unit/*.test.ts\"",
+    "typecheck:mac-web": "tsc --project tsconfig.mac.json --noEmit",
+    "build": "node bin/build.mjs",
+    "build:mac-web": "vite build",
+    "start": "npm run build && node --import ./bin/bundler-imports.mjs out/src/main.js",
+    "test:unit": "node --test --test-concurrency=8 --import ./test/unit/tsResolve.mjs \"test/unit/*.test.ts\"",
+    "test:host": "npm run build && node --import ./bin/bundler-imports.mjs --test \"out/test/host/*.test.js\"",
     "test:rust": "cd src-tauri && cargo test --profile dev-small -j 8",
-    "e2e": "node --test --test-timeout=15000 --test-concurrency=1 test/e2e/e2e.test.mjs test/e2e/scmWatcher.test.mjs test/e2e/terminal.test.mjs",
-    "e2e:terminal": "node --test --test-timeout=15000 test/e2e/terminal.test.mjs",
-    "tauri": "tauri",
-    "tauri:dev": "cd src-tauri/apps/tscode && tauri dev",
-    "tauri:build": "cd src-tauri/apps/tscode && tauri build",
-    "keymap": "node --experimental-transform-types --import ./test/unit/tsResolve.mjs scripts/keymap-drift.mjs",
+    "e2e": "npm run build && node --test --test-concurrency=1 \"test/e2e/*.test.mjs\"",
+    "test:coverage": "node --test test/coverage/*.test.mjs",
+    "test:safe-matrix": "node scripts/run-safe-matrix.mjs",
+    "keymap": "node --import ./test/unit/tsResolve.mjs scripts/keymap-drift.mjs",
     "keyboard": "node docs/keyboard/build.mjs",
-    "dup": "npx --yes jscpd@4.0.5 src scripts src-tauri test",
+    "provenance": "node docs/provenance/build.mjs",
+    "dup": "npx --yes jscpd@4.0.5 src scripts src-tauri test docs mac",
     "dup:tauri": "node scripts/dup-tauri.mjs",
     "copy:vscode": "pwsh -NoProfile -File scripts/copy-from-vscode.ps1",
     "copy:extensions": "pwsh -NoProfile -File scripts/copy-extensions.ps1",
     "copy:sapling": "pwsh -NoProfile -File scripts/copy-from-sapling.ps1",
     "prepare": "git config core.hooksPath .githooks",
-    "provenance": "node docs/provenance/build.mjs"
+    "test:native": "npm run build && node --test --test-concurrency=1 test/native/*.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -41,13 +41,13 @@
     "@xterm/addon-serialize": "^0.15.0-beta.291",
     "@xterm/addon-unicode11": "^0.10.0-beta.291",
     "@xterm/addon-webgl": "^0.20.0-beta.290",
+    "@xterm/headless": "^6.1.0-beta.291",
     "@xterm/xterm": "^6.1.0-beta.291",
     "jschardet": "^3.1.4",
     "vscode-oniguruma": "1.7.0",
     "vscode-textmate": "^9.3.2"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.20.1",
     "@types/semver": "^7.7.1",
     "@types/trusted-types": "^2.0.7",
@@ -55,9 +55,7 @@
     "@types/wicg-file-system-access": "^2023.10.7",
     "@webgpu/types": "^0.1.71",
     "@xterm/addon-ligatures": "^0.11.0-beta.291",
-    "@xterm/headless": "^6.1.0-beta.291",
-    "playwright-core": "^1.62.0",
-    "typescript": "^5.9.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "typescript": "^5.9.0"
   }
 }

@@ -49,7 +49,6 @@ export class TextFileEditor extends AbstractTextCodeEditor<ICodeEditorViewState>
 		group: IEditorGroup,
 		@ITelemetryService telemetryService: ITelemetryService,
 		@IFileService fileService: IFileService,
-		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IStorageService storageService: IStorageService,
@@ -182,7 +181,10 @@ export class TextFileEditor extends AbstractTextCodeEditor<ICodeEditorViewState>
 			if (this.contextService.isInsideWorkspace(input.preferredResource)) {
 				actions.push(toAction({
 					id: 'workbench.files.action.reveal', label: localize('reveal', "Reveal Folder"), run: async () => {
-						await this.paneCompositeService.openPaneComposite(VIEWLET_ID, ViewContainerLocation.Sidebar, true);
+						// Opening a text editor does not require constructing the surrounding shell.
+						// Resolve its navigation service only when this error action is invoked.
+						await this.instantiationService.invokeFunction(accessor =>
+							accessor.get(IPaneCompositePartService).openPaneComposite(VIEWLET_ID, ViewContainerLocation.Sidebar, true));
 
 						return this.explorerService.select(input.preferredResource, true);
 					}

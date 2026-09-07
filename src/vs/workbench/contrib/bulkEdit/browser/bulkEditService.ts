@@ -22,7 +22,6 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IProgress, IProgressStep, Progress } from '../../../../platform/progress/common/progress.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { UndoRedoGroup, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
-import { BulkCellEdits, ResourceNotebookCellEdit } from './bulkCellEdits.js';
 import { BulkFileEdits } from './bulkFileEdits.js';
 import { BulkTextEdits } from './bulkTextEdits.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
@@ -40,10 +39,6 @@ function liftEdits(edits: ResourceEdit[]): ResourceEdit[] {
 		if (ResourceFileEdit.is(edit)) {
 			return ResourceFileEdit.lift(edit);
 		}
-		if (ResourceNotebookCellEdit.is(edit)) {
-			return ResourceNotebookCellEdit.lift(edit);
-		}
-
 		if (ResourceAttachmentEdit.is(edit)) {
 			return ResourceAttachmentEdit.lift(edit);
 		}
@@ -128,8 +123,6 @@ class BulkEdit {
 				resources.push(await this._performFileEdits(<ResourceFileEdit[]>group, this._undoRedoGroup, this._undoRedoSource, this._confirmBeforeUndo, progress));
 			} else if (group[0] instanceof ResourceTextEdit) {
 				resources.push(await this._performTextEdits(<ResourceTextEdit[]>group, this._undoRedoGroup, this._undoRedoSource, progress, reason));
-			} else if (group[0] instanceof ResourceNotebookCellEdit) {
-				resources.push(await this._performCellEdits(<ResourceNotebookCellEdit[]>group, this._undoRedoGroup, this._undoRedoSource, progress));
 			} else if (group[0] instanceof ResourceAttachmentEdit) {
 				resources.push(await this._performOpaqueEdits(<ResourceAttachmentEdit[]>group, this._undoRedoGroup, this._undoRedoSource, progress));
 			} else {
@@ -151,12 +144,6 @@ class BulkEdit {
 		this._logService.debug('_performTextEdits', JSON.stringify(edits));
 		const model = this._instaService.createInstance(BulkTextEdits, this._label || localize('workspaceEdit', "Workspace Edit"), this._code || 'undoredo.workspaceEdit', this._editor, undoRedoGroup, undoRedoSource, progress, this._token, edits);
 		return await model.apply(reason);
-	}
-
-	private async _performCellEdits(edits: ResourceNotebookCellEdit[], undoRedoGroup: UndoRedoGroup, undoRedoSource: UndoRedoSource | undefined, progress: IProgress<void>): Promise<readonly URI[]> {
-		this._logService.debug('_performCellEdits', JSON.stringify(edits));
-		const model = this._instaService.createInstance(BulkCellEdits, undoRedoGroup, undoRedoSource, progress, this._token, edits);
-		return await model.apply();
 	}
 
 	private async _performOpaqueEdits(edits: ResourceAttachmentEdit[], undoRedoGroup: UndoRedoGroup, undoRedoSource: UndoRedoSource | undefined, progress: IProgress<void>): Promise<readonly URI[]> {

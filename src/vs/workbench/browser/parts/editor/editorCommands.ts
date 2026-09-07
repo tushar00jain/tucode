@@ -154,7 +154,7 @@ const isSelectedEditorsMoveCopyArg = function (arg: SelectedEditorsMoveCopyArgum
 	return true;
 };
 
-function registerEditorMoveCopyCommand(): void {
+export function registerEditorMoveCopyCommand(): void {
 
 	const moveCopyJSONSchema: IJSONSchema = {
 		'type': 'object',
@@ -425,7 +425,7 @@ function registerEditorGroupsLayoutCommands(): void {
 	});
 }
 
-function registerOpenEditorAPICommands(): void {
+export function registerOpenEditorAPICommands(): void {
 
 	function mixinContext(context: IOpenEvent<unknown> | undefined, options: ITextEditorOptions | undefined, column: EditorGroupColumn | undefined): [ITextEditorOptions | undefined, EditorGroupColumn | undefined] {
 		if (!context) {
@@ -625,7 +625,7 @@ interface OpenMultiFileDiffEditorOptions {
 	};
 }
 
-function registerOpenEditorAtIndexCommands(): void {
+export function registerOpenEditorAtIndexCommands(): void {
 	const openEditorAtIndex: ICommandHandler = (accessor: ServicesAccessor, editorIndex: unknown): void => {
 		const editorService = accessor.get(IEditorService);
 		const activeEditorPane = editorService.activeEditorPane;
@@ -782,7 +782,7 @@ function registerSplitEditorCommands() {
 	});
 }
 
-function registerCloseEditorCommands() {
+export function registerCloseEditorCommands() {
 
 	// A special handler for "Close Editor" depending on context
 	// - keybindining: do not close sticky editors, rather open the next non-sticky editor

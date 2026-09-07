@@ -142,6 +142,10 @@ export abstract class BaseWindow extends Disposable {
 				// this can happen for timeouts on unfocused windows
 				let didClear = false;
 
+				// `CodeWindow` is `Window & typeof globalThis`, so `typeof window.setTimeout` carries
+				// `@types/node`'s globals — whose *last* overload is the two-argument one, and the last
+				// is what `apply` checks against. Node's real `setTimeout` is variadic (§16.10).
+				// @ts-expect-error
 				const handle = (window as { vscodeOriginalSetTimeout?: typeof window.setTimeout }).vscodeOriginalSetTimeout?.apply(this, [(...args: unknown[]) => {
 					if (didClear) {
 						return;

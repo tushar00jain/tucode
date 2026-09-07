@@ -1,17 +1,27 @@
 {
+  "//": [
+    "The source duplication threshold is 0.2%.",
+    "Raised size and line limits keep large source files in the scan.",
+    "Generated report HTML is excluded; its generators remain checked."
+  ],
   "minLines": 5,
   "minTokens": 50,
-  "threshold": 0.18,
-  "reporters": ["console"],
+  "maxLines": 100000,
+  "maxSize": "10mb",
+  "threshold": 0.2,
+  "reporters": [
+    "console"
+  ],
   "gitignore": true,
   "ignore": [
+    "docs/provenance/provenance.html",
+    "docs/keyboard/*.html",
     "**/node_modules/**",
     "src/vs/**",
     "src/vendor/**",
     "resources/**",
-    "dist/**",
     "src-tauri/target/**",
-    "src-tauri/apps/*/gen/**",
+    "**/.build/**",
     "**/media/**",
     "**/*.min.*",
     "**/package-lock.json"

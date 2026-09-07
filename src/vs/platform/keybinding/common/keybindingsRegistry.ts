@@ -10,6 +10,7 @@ import { ContextKeyExpression } from '../../contextkey/common/contextkey.js';
 import { Registry } from '../../registry/common/platform.js';
 import { combinedDisposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { LinkedList } from '../../../base/common/linkedList.js';
+import { Emitter, Event } from '../../../base/common/event.js';
 
 export interface IKeybindingItem {
 	keybinding: Keybinding | null;
@@ -74,6 +75,7 @@ export interface ICommandAndKeybindingRule<Args extends unknown[] = unknown[]> e
 }
 
 export interface IKeybindingsRegistry {
+	readonly onDidChangeKeybindings: Event<void>;
 	registerKeybindingRule(rule: IKeybindingRule): IDisposable;
 	setExtensionKeybindings(rules: IExtensionKeybindingRule[]): void;
 	registerCommandAndKeybindingRule<Args extends unknown[] = unknown[]>(desc: ICommandAndKeybindingRule<Args>): IDisposable;
@@ -85,6 +87,8 @@ export interface IKeybindingsRegistry {
  * Stores all built-in and extension-provided keybindings (but not ones that user defines themselves)
  */
 class KeybindingsRegistryImpl implements IKeybindingsRegistry {
+	private readonly _onDidChangeKeybindings = new Emitter<void>();
+	readonly onDidChangeKeybindings = this._onDidChangeKeybindings.event;
 
 	private _coreKeybindings: LinkedList<IKeybindingItem>;
 	private _coreKeybindingRules: LinkedList<IKeybindingRule>;
@@ -144,7 +148,8 @@ class KeybindingsRegistryImpl implements IKeybindingsRegistry {
 		}
 
 		const removeRule = this._coreKeybindingRules.push(rule);
-		result.add(toDisposable(() => { removeRule(); }));
+		result.add(toDisposable(() => { removeRule(); this._onDidChangeKeybindings.fire(); }));
+		this._onDidChangeKeybindings.fire();
 
 		return result;
 	}
@@ -169,6 +174,7 @@ class KeybindingsRegistryImpl implements IKeybindingsRegistry {
 
 		this._extensionKeybindings = result;
 		this._cachedMergedKeybindings = null;
+		this._onDidChangeKeybindings.fire();
 	}
 
 	public registerCommandAndKeybindingRule(desc: ICommandAndKeybindingRule): IDisposable {

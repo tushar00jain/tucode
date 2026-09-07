@@ -35,7 +35,7 @@ import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 
 /** What the engine says it is in, which is what vim's own `showmode` says. */
-export type VimEngineMode = 'normal' | 'insert' | 'replace' | 'visual';
+export type VimEngineMode = 'normal' | 'insert' | 'replace' | 'visual' | 'visual-line' | 'visual-block';
 
 /** Every state a text editor can be in. `viewer` is the one the editor opens in. */
 export type VimEditorState = 'viewer' | VimEngineMode;
@@ -165,7 +165,7 @@ export function engineContextOf(state: VimEditorState): VimKeyContext | undefine
 		// Replace mode is insert mode with a flag on: `vim.js` routes both through
 		// `handleKeyInsertMode`, so it matches insert's rows and no others.
 		case 'insert': case 'replace': return 'insert';
-		case 'visual': return 'visual';
+		case 'visual': case 'visual-line': case 'visual-block': return 'visual';
 		case 'normal': return 'normal';
 	}
 }
@@ -187,6 +187,28 @@ export function vimClaimsKey(key: VimKeyName | undefined, state: VimEditorState)
 	return ENGINE_CHORDS.get(key)?.includes(context) ?? false;
 }
 
+/** One shared contested-key decision, usable by frontends whose session owner lives elsewhere. */
+export function vimConsumesKey(
+	state: VimEditorState,
+	key: VimKeyName | undefined,
+	commandId: () => string | undefined,
+	keepsCommand: (commandId: string | undefined) => boolean
+): boolean {
+	if (state === 'viewer') {
+		return false;
+	}
+
+	const id = commandId();
+	if (!id) {
+		return true;
+	}
+	if (ALWAYS_WORKBENCH_COMMANDS.has(id)) {
+		return false;
+	}
+
+	return !keepsCommand(id) || vimClaimsKey(key, state);
+}
+
 /**
  * **What a single `u` takes back**: one vim command, except while the engine is typing, where the
  * whole insert is one undo and the boundary is `i` and `<Esc>` rather than each character.
@@ -197,7 +219,7 @@ export function vimClaimsKey(key: VimKeyName | undefined, state: VimEditorState)
  * engine's own `vimState` holder, which is the vocabulary both adapters already speak; the engine
  * routes replace mode through insert, so `insertMode` covers `R` as well as `i`.
  */
-export function startsUndoElement(state: { vim?: { insertMode?: boolean } }): boolean {
+export function startsUndoElement(state: { vim?: { insertMode?: boolean } | null }): boolean {
 	return !state.vim?.insertMode;
 }
 
@@ -321,22 +343,7 @@ export class VimEditorPolicy<TKey> extends Disposable {
 	 * the viewer never needs it.
 	 */
 	consumesKey(key: VimKeyName | undefined, commandId: () => string | undefined): boolean {
-		const state = this.state;
-
-		if (state === 'viewer') {
-			return false;
-		}
-
-		const id = commandId();
-
-		if (!id) {
-			return true;
-		}
-		if (ALWAYS_WORKBENCH_COMMANDS.has(id)) {
-			return false;
-		}
-
-		return !this.frontend.keepsCommand(id) || vimClaimsKey(key, state);
+		return vimConsumesKey(this.state, key, commandId, id => this.frontend.keepsCommand(id));
 	}
 
 	/** One key, once this editor has decided it is the one to answer it. */

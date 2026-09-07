@@ -3,96 +3,24 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import * as platform from '../../../../base/common/platform.js';
 import * as nls from '../../../../nls.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
-import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { Extensions as QuickAccessExtensions, IQuickAccessRegistry } from '../../../../platform/quickinput/common/quickAccess.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { Extensions as ViewExtensions, IViewContainersRegistry, IViewDescriptor, IViewsRegistry, ViewContainerLocation } from '../../../common/views.js';
-import { searchViewIcon } from './searchIcons.js';
-import { SearchView } from './searchView.js';
-import { registerContributions as searchWidgetContributions } from './searchWidget.js';
 import { SearchViewModelWorkbenchService } from './searchTreeModel/searchModel.js';
 import { ISearchViewModelWorkbenchService } from './searchTreeModel/searchViewModelWorkbenchService.js';
-import { SearchSortOrder, SEARCH_EXCLUDE_CONFIG, VIEWLET_ID, ViewMode, VIEW_ID, DEFAULT_MAX_SEARCH_RESULTS, SemanticSearchBehavior } from '../../../services/search/common/search.js';
+import { SearchSortOrder, SEARCH_EXCLUDE_CONFIG, ViewMode, DEFAULT_MAX_SEARCH_RESULTS, SemanticSearchBehavior } from '../../../services/search/common/search.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { assertType } from '../../../../base/common/types.js';
 import { getWorkspaceSymbols, IWorkspaceSymbol, searchConfigurationNode } from '../common/search.js';
-import * as Constants from '../common/constants.js';
 
-import './searchActionsCopy.js';
-import './searchActionsFind.js';
-import './searchActionsNav.js';
-import './searchActionsRemoveReplace.js';
-import './searchActionsTopBar.js';
-import './searchActionsTextQuickAccess.js';
-import './searchQuickAccess.contribution.js';
 import './search.common.contribution.js';
-import { TEXT_SEARCH_QUICK_ACCESS_PREFIX, TextSearchQuickAccess } from './quickTextSearch/textSearchQuickAccess.js';
 import { Extensions, IConfigurationMigrationRegistry } from '../../../common/configuration.js';
-import { AccessibleViewRegistry } from '../../../../platform/accessibility/browser/accessibleViewRegistry.js';
-import { SearchAccessibilityHelp } from './searchAccessibilityHelp.js';
 
 registerSingleton(ISearchViewModelWorkbenchService, SearchViewModelWorkbenchService, InstantiationType.Delayed);
 
-searchWidgetContributions();
-
-AccessibleViewRegistry.register(new SearchAccessibilityHelp());
-
 const SEARCH_MODE_CONFIG = 'search.mode';
-
-const viewContainer = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).registerViewContainer({
-	id: VIEWLET_ID,
-	title: nls.localize2('search', "Search"),
-	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }]),
-	hideIfEmpty: true,
-	icon: searchViewIcon,
-	order: 1,
-}, ViewContainerLocation.Sidebar, { doNotRegisterOpenCommand: true });
-
-const viewDescriptor: IViewDescriptor = {
-	id: VIEW_ID,
-	containerIcon: searchViewIcon,
-	name: nls.localize2('search', "Search"),
-	ctorDescriptor: new SyncDescriptor(SearchView),
-	canToggleVisibility: false,
-	canMoveView: true,
-	openCommandActionDescriptor: {
-		id: viewContainer.id,
-		mnemonicTitle: nls.localize({ key: 'miViewSearch', comment: ['&& denotes a mnemonic'] }, "&&Search"),
-		keybindings: {
-			primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF,
-			// Yes, this is weird. See #116188, #115556, #115511, and now #124146, for examples of what can go wrong here.
-			when: ContextKeyExpr.regex('neverMatch', /doesNotMatch/)
-		},
-		order: 1
-	}
-};
-
-// Register search default location to sidebar
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([viewDescriptor], viewContainer);
-
-// Register Quick Access Handler
-const quickAccessRegistry = Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess);
-
-quickAccessRegistry.registerQuickAccessProvider({
-	ctor: TextSearchQuickAccess,
-	prefix: TEXT_SEARCH_QUICK_ACCESS_PREFIX,
-	contextKey: 'inTextSearchPicker',
-	placeholder: nls.localize('textSearchPickerPlaceholder', "Search for text in your workspace files."),
-	helpEntries: [
-		{
-			description: nls.localize('textSearchPickerHelp', "Search for Text"),
-			commandId: Constants.SearchCommandIds.QuickTextSearchActionId,
-			commandCenterOrder: 25,
-		}
-	]
-});
 
 // Configuration
 const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);

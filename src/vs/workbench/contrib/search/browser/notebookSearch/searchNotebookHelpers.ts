@@ -7,7 +7,7 @@ import { FindMatch } from '../../../../../editor/common/model.js';
 import { IFileMatch, ITextSearchMatch, TextSearchMatch } from '../../../../services/search/common/search.js';
 import { Range } from '../../../../../editor/common/core/range.js';
 import { INotebookCellMatchNoModel, INotebookFileMatchNoModel, genericCellMatchesToTextSearchMatches, rawCellPrefix } from '../../common/searchNotebookHelpers.js';
-import { CellWebviewFindMatch, ICellViewModel } from '../../../notebook/browser/notebookBrowser.js';
+import type { CellWebviewFindMatch, ICellViewModel } from '../../../notebook/browser/notebookBrowser.js';
 import { URI } from '../../../../../base/common/uri.js';
 
 export type INotebookCellMatch = INotebookCellMatchWithModel | INotebookCellMatchNoModel;

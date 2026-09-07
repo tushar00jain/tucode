@@ -81,6 +81,7 @@ export class TauriTerminalProcess extends Disposable implements ITerminalChildPr
 		private readonly _executableEnv: IProcessEnvironment,
 		private readonly _options: ITerminalProcessOptions,
 		private readonly _channel: IChannel,
+		private readonly _fileChannel: IChannel,
 		private readonly _fileService: IFileService,
 		private readonly _logService: ILogService,
 		private readonly _productService: IProductService
@@ -91,7 +92,7 @@ export class TauriTerminalProcess extends Disposable implements ITerminalChildPr
 	async start(): Promise<ITerminalLaunchError | ITerminalLaunchResult | undefined> {
 		// Port of `TerminalProcess.start`'s injection block. The cwd and executable validation
 		// either side of it is the backend's, since both read the filesystem it owns.
-		const injection = await getShellIntegrationInjection(this.shellLaunchConfig, this._options, this._env, this._logService, this._productService, this._fileService, this._channel);
+		const injection = await getShellIntegrationInjection(this.shellLaunchConfig, this._options, this._env, this._logService, this._productService, this._fileService, this._channel, this._fileChannel);
 		if (injection.type === 'injection') {
 			this._onDidChangeProperty.fire({ type: ProcessPropertyType.UsedShellIntegrationInjection, value: true });
 			if (injection.envMixin) {
@@ -219,8 +220,8 @@ export class TauriTerminalProcess extends Disposable implements ITerminalChildPr
 		return pending;
 	}
 
-	shutdown(immediate: boolean): void {
-		this._send('shutdown', { immediate });
+	shutdown(immediate: boolean): Promise<void> {
+		return this._send('shutdown', { immediate });
 	}
 
 	input(data: string): void {

@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 import type { CommitInfo, Hash } from '../../src/vs/workbench/contrib/sapling/common/types.js';
 
 import { subsetForRendering } from '../../src/vs/workbench/contrib/sapling/tauri/saplingDagModel.js';
+import { commit } from './saplingCommit.js';
 
 /**
  * `subsetForRendering` is a port of `Dag.subsetForRenderingImpl`, and upstream has no test for
@@ -21,27 +22,6 @@ import { subsetForRendering } from '../../src/vs/workbench/contrib/sapling/tauri
  * ones, because `sl` in a git checkout with no remote calls everything draft. So this is the
  * only coverage the filter has.
  */
-
-/** One commit, with the fields the filter reads and defaults for the rest. */
-function commit(hash: Hash, options: Partial<CommitInfo> = {}): CommitInfo {
-	return {
-		hash,
-		title: hash,
-		parents: [],
-		grandparents: [],
-		phase: 'draft',
-		isDot: false,
-		author: '',
-		date: new Date(0),
-		description: '',
-		bookmarks: [],
-		remoteBookmarks: [],
-		filePathsSample: [],
-		totalFileCount: 0,
-		closestPredecessors: [],
-		...options
-	};
-}
 
 const drawn = (commits: readonly CommitInfo[]) => subsetForRendering(commits).map(info => info.hash);
 

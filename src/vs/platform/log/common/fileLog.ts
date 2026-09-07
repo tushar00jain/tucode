@@ -20,6 +20,15 @@ class FileLogger extends AbstractMessageLogger implements ILogger {
 	private backupIndex: number = 1;
 	private buffer: string = '';
 
+	// tucode: a log write that fails must not report itself. `main.ts` routes `onUnexpectedError`
+	// into this logger, and the promise `flush()` returns is dropped by both of its callers —
+	// `log()`'s throttled trigger and `LogService.flush()` — so a rejection arrives as an unhandled
+	// rejection, becomes another `log()`, and arms another 100 ms ref'd timer over the same failing
+	// write. The process then prints nothing and never exits. The log dies at the first failure
+	// instead, whatever the cause: a closed host, a full disk, a permission error, a deleted
+	// directory. A dead log neither buffers nor writes, so no failing write can produce another.
+	private dead: boolean = false;
+
 	constructor(
 		private readonly resource: URI,
 		level: LogLevel,
@@ -33,19 +42,24 @@ class FileLogger extends AbstractMessageLogger implements ILogger {
 	}
 
 	override async flush(): Promise<void> {
-		if (!this.buffer) {
+		if (this.dead || !this.buffer) {
 			return;
 		}
-		await this.initializePromise;
-		let content = await this.loadContent();
-		if (content.length > MAX_FILE_SIZE) {
-			await this.fileService.writeFile(this.getBackupResource(), VSBuffer.fromString(content));
-			content = '';
-		}
-		if (this.buffer) {
-			content += this.buffer;
+		try {
+			await this.initializePromise;
+			let content = await this.loadContent();
+			if (content.length > MAX_FILE_SIZE) {
+				await this.fileService.writeFile(this.getBackupResource(), VSBuffer.fromString(content));
+				content = '';
+			}
+			if (this.buffer) {
+				content += this.buffer;
+				this.buffer = '';
+				await this.fileService.writeFile(this.resource, VSBuffer.fromString(content));
+			}
+		} catch {
+			this.dead = true; // tucode: see `dead`
 			this.buffer = '';
-			await this.fileService.writeFile(this.resource, VSBuffer.fromString(content));
 		}
 	}
 
@@ -60,6 +74,9 @@ class FileLogger extends AbstractMessageLogger implements ILogger {
 	}
 
 	protected log(level: LogLevel, message: string): void {
+		if (this.dead) { // tucode: see `dead`
+			return;
+		}
 		if (this.donotUseFormatters) {
 			this.buffer += message;
 		} else {

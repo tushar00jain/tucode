@@ -403,11 +403,10 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
 			// Don't flood telemetry with too many events
 			return;
 		}
-		if (TextMateTokenizationFeature.reportTokenizationTimeCounter[key] === 0) {
-			setTimeout(() => {
-				TextMateTokenizationFeature.reportTokenizationTimeCounter[key] = 0;
-			}, 1000 * 60 * 60);
-		}
+		// tucode: the one-hour `setTimeout` that reset this counter is deleted. A timer cannot keep
+		// a page open and does keep a Node process open, so the first file anyone opened held the
+		// run for an hour after it was over. The counter it reset only rate-limits a
+		// `NullTelemetryService`.
 		TextMateTokenizationFeature.reportTokenizationTimeCounter[key]++;
 
 		this._telemetryService.publicLog2<{

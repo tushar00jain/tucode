@@ -77,6 +77,8 @@ import { SearchContext } from '../../contrib/search/common/constants.js';
 const EXPLORER_VIEW_ID = 'workbench.explorer.fileView';
 /** `contrib/files/common/files.ts`'s `TEXT_FILE_EDITOR_ID`. */
 const TEXT_FILE_EDITOR_ID = 'workbench.editors.files.textFileEditor';
+/** `parts/editor/textResourceEditor.ts`'s pane for untitled text buffers. */
+const TEXT_RESOURCE_EDITOR_ID = 'workbench.editors.textResourceEditor';
 /** `contrib/scm/common/scm.ts`'s `VIEW_PANE_ID`. */
 const SCM_VIEW_ID = 'workbench.scm';
 /** `contrib/scm/common/scm.ts`'s `HISTORY_VIEW_PANE_ID`. */
@@ -134,8 +136,16 @@ export const FilteringContext = new RawContextKey<boolean>('tscodeFiltering', fa
 
 /**
  * Whether the editor that has the keyboard reads letters as commands rather than as text — the
- * viewer and every vim mode but insert and replace, published from `VimEditorPolicy.typing` by
- * `vim.contribution.ts` and reset the moment no editor has the text focus.
+ * viewer and every vim mode but insert and replace.
+ *
+ * **Nothing publishes it in this fork, and that is correct.** In tscode it is published from
+ * `VimEditorPolicy.typing` by `contrib/vim/tauri/vim.contribution.ts`, which exists to correct a
+ * Monaco `inputFocus` that is true whenever an editor has the keyboard, typing or not. This
+ * frontend has no Monaco: `Workbench.publishContext` sets `inputFocus` from
+ * `overlays.top || pane.editing` (`tui/workbench/workbench.ts:660`), so it already means *typing*
+ * and there is nothing to correct. The key stays declared because the rows below are the rows
+ * tscode's keymap builds, and it reads `false` forever here — which collapses
+ * `!inputFocus || tscodeEditorCommands` to `!inputFocus`, the answer this fork wants.
  *
  * **This is what `!inputFocus` cannot say here.** A focused Monaco always sets `inputFocus`
  * (`isEditableElement` counts every textarea, `dom.ts:2448`), so a `global` row expanded to
@@ -193,8 +203,9 @@ export const SHOW_KEYS_ID = 'workbench.action.openGlobalKeybindings';
  */
 export type KeymapScope = 'global' | `view:${string}` | `editor:${string}`;
 
-/** Which surface a row is confined to. Always paired with a `reason`. */
+/** A surface this table is read for: tscode's window or this terminal frontend. */
 export type KeymapSurface = 'tui' | 'gui';
+
 
 /**
  * The four comparisons `scripts/keymap-drift.mjs` makes when it measures this declaration against
@@ -279,16 +290,14 @@ export function editorIdOf(scope: KeymapScope): string | undefined {
 	return scope.startsWith('editor:') ? scope.slice('editor:'.length) : undefined;
 }
 
-/** The rows a surface has to carry: everything but what the other surface keeps to itself. */
+/**
+ * The rows a surface has to carry: everything but what another surface keeps to itself.
+ */
 export function rowsFor(surface: KeymapSurface): readonly IKeymapRow[] {
 	return KEYMAP.filter(row => row.only === undefined || row.only === surface);
 }
 
-/**
- * The chords a surface answers a row on — `keys` unless the row names its own for this one. Every
- * reader of a row's keys goes through here, because a row's chord is now a question with a surface
- * in it and `keys` alone answers it for the terminal only.
- */
+/** The chords a surface answers a row on. */
 export function keysFor(row: IKeymapRow, surface: KeymapSurface): readonly number[] {
 	return surface === 'gui' && row.guiKeys ? row.guiKeys : row.keys;
 }
@@ -321,7 +330,10 @@ const guiNotTyping = ContextKeyExpr.or(InputFocusedContext.negate(), EditorComma
 export function expandGuiScope(row: IKeymapRow): ContextKeyExpression | undefined {
 	const editorId = editorIdOf(row.scope);
 	if (editorId !== undefined) {
-		return ContextKeyExpr.and(ContextKeyExpr.equals(ACTIVE_EDITOR, editorId), EditorContextKeys.editorTextFocus, row.extraWhen);
+		const activeEditor = editorId === TEXT_FILE_EDITOR_ID
+			? ContextKeyExpr.or(ContextKeyExpr.equals(ACTIVE_EDITOR, editorId), ContextKeyExpr.equals(ACTIVE_EDITOR, TEXT_RESOURCE_EDITOR_ID))
+			: ContextKeyExpr.equals(ACTIVE_EDITOR, editorId);
+		return ContextKeyExpr.and(activeEditor, EditorContextKeys.editorTextFocus, row.extraWhen);
 	}
 
 	const viewId = viewIdOf(row.scope);
@@ -464,7 +476,7 @@ export const KEYMAP: readonly IKeymapRow[] = [
 	// it at upstream's `false`: while it is off a list's scroll width is clamped to its render width
 	// and the offset cannot move, so the rows are registered and inert. That is deliberate — the
 	// setting costs the ellipsis on every over-long row and a width measurement per render — and a
-	// user who wants the keys turns it on themselves. `TODO.md` carries the rest, including that
+	// user who wants the keys turns it on themselves. `docs/TODO.md` carries the rest, including that
 	// Source Control opts out at construction and so stays inert either way.
 	{
 		id: 'list.scrollLeft',
@@ -484,7 +496,22 @@ export const KEYMAP: readonly IKeymapRow[] = [
 		id: 'markdown.showPreview',
 		scope: TEXT_EDITOR,
 		keys: [KeyCode.KeyP],
-		extraWhen: ContextKeyExpr.equals(RESOURCE_LANG_ID, MARKDOWN_LANGUAGE_ID)
+		extraWhen: ContextKeyExpr.equals(RESOURCE_LANG_ID, MARKDOWN_LANGUAGE_ID),
+	},
+	{
+		id: 'markdown.showPreviewToSide',
+		scope: TEXT_EDITOR,
+		keys: [KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyCode.KeyV)],
+		extraWhen: ContextKeyExpr.equals(RESOURCE_LANG_ID, MARKDOWN_LANGUAGE_ID),
+		only: 'tui',
+		reason: "The terminal exposes the port's explicit side-preview command separately from its current-group P command."
+	},
+	{
+		id: 'markdown.showSource',
+		scope: 'view:workbench.editor.markdownPreview',
+		keys: [KeyCode.KeyP],
+		only: 'tui',
+		reason: "P returns from the native terminal preview to its existing source editor; the window preview owns its own controls."
 	},
 	// A toast is a thing the window put on screen without being asked, and upstream's answer for it
 	// is the same `Escape` that dismisses everything else. The ✕ is a mouse gesture, not a second
@@ -502,7 +529,11 @@ export const KEYMAP: readonly IKeymapRow[] = [
 		only: 'gui',
 		reason: "Upstream's progress and notification surfaces are a window's — a toast is drawn over the workbench by `INotificationService`. Without one there is nothing for this key to hide."
 	},
-	{ id: 'sapling.pickRepository', scope: SMARTLOG, keys: [KeyCode.KeyP] },
+	{
+		id: 'sapling.pickRepository',
+		scope: SMARTLOG,
+		keys: [KeyCode.KeyP],
+	},
 	{ id: 'scm.setActiveProvider', scope: SCM, keys: [KeyCode.KeyP] },
 	{
 		id: 'search.action.replace',
@@ -603,10 +634,13 @@ export const KEYMAP: readonly IKeymapRow[] = [
 		keys: [KeyCode.KeyI],
 		extraWhen: CanEditInputContext
 	},
-	{ id: 'tscode.file.edit', scope: TEXT_EDITOR, keys: [KeyCode.KeyV] },
-	{ id: 'tscode.file.toggleFold', forwards: 'editor.toggleFold', scope: TEXT_EDITOR, keys: [KeyCode.KeyF] },
+	{
+		id: 'tscode.file.edit', scope: TEXT_EDITOR, keys: [KeyCode.KeyV],
+	},
+	{
+		id: 'tscode.file.toggleFold', forwards: 'editor.toggleFold', scope: TEXT_EDITOR, keys: [KeyCode.KeyF],
+	},
 	{ id: 'tscode.file.toggleWordWrap', forwards: 'editor.action.toggleWordWrap', scope: TEXT_EDITOR, keys: [KeyCode.KeyW] },
-	{ id: 'tscode.filterExplorer', scope: EXPLORER, keys: [KeyCode.Slash] },
 
 	// `0` continues the digits the activity bar draws, and it is one key for both directions:
 	// upstream's own pair is `Ctrl+1`/`Ctrl+0`. Which of the two rules applies is `editorAreaFocus`
@@ -656,28 +690,31 @@ export const KEYMAP: readonly IKeymapRow[] = [
 		scope: 'global',
 		keys: [KeyCode.KeyQ],
 		only: 'tui',
-		reason: "As above — `Q` is the deliverable half of the same command, and the user ruled the whole command not ported."
+		reason: "As above — `Q` is the deliverable half of the same command, and the user ruled the whole command not ported.",
 	},
 
-	{ id: 'tscode.sapling.refresh', forwards: 'sapling.refresh', scope: SMARTLOG, keys: [KeyCode.KeyR] },
+	{
+		id: 'tscode.sapling.refresh',
+		forwards: 'sapling.refresh',
+		scope: SMARTLOG,
+		keys: [KeyCode.KeyR],
+	},
 
 	// **No terminal can deliver `Ctrl+Enter`** — it is the same byte as `Enter` — so upstream's own
 	// rule can never match there, and `Enter` is what the message box has spare. The user ruled the
 	// same key here for parity (`docs/ARCHITECTURE.md`, *What the keyboard commits to*): `Enter` commits, `Shift+Enter` is the newline the
-	// input widget writes with no rule of its own. `scmRepository` is created on a context key
-	// service scoped to the input widget's element (`scmInput.ts`), so this is live in the box and
-	// nowhere else — the SCM tree keeps its own `Enter`.
+	// input widget writes with no rule of its own. The view scope plus `inputFocus` are the actual
+	// ownership edge: Return is claimed only while the SCM input is being edited.
 	{
 		id: 'tscode.scm.acceptInput',
 		forwards: 'scm.acceptInput',
-		scope: 'global',
+		scope: SCM,
 		whileEditing: true,
 		keys: [KeyCode.Enter],
-		extraWhen: ContextKeyExpr.has('scmRepository')
+		extraWhen: ContextKeyExpr.and(InputFocusedContext, ContextKeyExpr.has('scmRepository'))
 	},
 	{ id: 'tscode.scm.cycleSortKey', scope: SCM, keys: [KeyCode.KeyS] },
 	{ id: 'tscode.scm.filter', scope: SCM, keys: [KeyCode.Slash] },
-	{ id: 'tscode.scm.openChange', forwards: 'git.openChange', scope: SCM, keys: [KeyCode.KeyO] },
 	{ id: 'tscode.scm.refresh', forwards: 'git.refresh', scope: SCM, keys: [KeyCode.KeyR] },
 	// `A` rather than `S`, which the sort key already has.
 	{ id: 'tscode.scm.stage', forwards: 'git.stage', scope: SCM, keys: [KeyCode.KeyA] },
@@ -707,7 +744,7 @@ export const KEYMAP: readonly IKeymapRow[] = [
 	{ id: 'tscode.showViewContainer', scope: 'global', keys: [KeyCode.Digit7], args: 6 },
 	{ id: 'tscode.showViewContainer', scope: 'global', keys: [KeyCode.Digit8], args: 7 },
 	{ id: 'tscode.showViewContainer', scope: 'global', keys: [KeyCode.Digit9], args: 8 },
-
+	{ id: 'workbench.action.findInFiles', scope: 'global', whileEditing: true, keys: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF] },
 	// A box on the floating layer sets `inputFocus` too — that is what keeps every single-character
 	// rule out of a picker — so this rule and upstream's `workbench.action.closeQuickOpen` are both
 	// on `Escape` under conditions that hold together. `inQuickOpen` is the key upstream tells them
@@ -749,7 +786,9 @@ export const KEYMAP: readonly IKeymapRow[] = [
 		}
 	},
 	{ id: 'workbench.files.action.collapseExplorerFolders', scope: EXPLORER, keys: [KeyCode.KeyC] },
-	{ id: 'workbench.action.createTerminalEditor', scope: 'global', keys: [KeyCode.KeyT] },
+	{
+		id: 'workbench.action.createTerminalEditor', scope: 'global', keys: [KeyCode.KeyT],
+	},
 
 	// Upstream binds neither resize command: the gesture is a sash, and the commands exist for a
 	// `keybindings.json` to reach. Their nearest neighbours by meaning are `zoomIn`/`zoomOut` at
@@ -771,7 +810,7 @@ export const KEYMAP: readonly IKeymapRow[] = [
 		id: 'workbench.action.focusSideBar',
 		scope: 'global',
 		keys: [KeyCode.Digit0],
-		extraWhen: EditorAreaFocus
+		extraWhen: EditorAreaFocus,
 	},
 
 	// The cycling gesture means "the next thing in the part that has the keyboard", and the two

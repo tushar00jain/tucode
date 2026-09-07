@@ -17,7 +17,8 @@
 
 export class PendingWork {
 
-	private readonly pending = new Set<Promise<unknown>>();
+	private readonly pending = new Map<Promise<unknown>, { readonly label: string; readonly started: number }>();
+	private disposed = false;
 
 	/** Everything ever registered here, which is what says the tracking is on the live path. */
 	private tracked = 0;
@@ -25,11 +26,24 @@ export class PendingWork {
 	constructor(readonly name: string) { }
 
 	/** Registers `work` and hands back the caller's own promise, untouched. */
-	track<T>(work: Promise<T>): Promise<T> {
+	track<T>(work: Promise<T>, label = 'anonymous'): Promise<T> {
+		if (this.disposed) { return work; }
 		this.tracked++;
 		const tracked: Promise<void> = work.then(() => undefined, () => undefined).finally(() => this.pending.delete(tracked));
-		this.pending.add(tracked);
+		this.pending.set(tracked, { label, started: Date.now() });
 
+		return work;
+	}
+
+	/** Owns a semantic task through the queue's drain edge, not merely its result resolution. */
+	queue<T>(
+		queue: { queue(factory: () => Promise<T>): Promise<T>; whenIdle(): Promise<void> },
+		factory: () => Promise<T>,
+		label = 'queued'
+	): Promise<T> {
+		if (this.disposed) { throw new Error(`${this.name} has been disposed`); }
+		const work = queue.queue(factory);
+		this.track(Promise.all([work, queue.whenIdle()]), label);
 		return work;
 	}
 
@@ -51,10 +65,22 @@ export class PendingWork {
 		return this.tracked;
 	}
 
+	/** Bounded live-operation diagnostics; settled work is never retained. */
+	diagnostics(): readonly { readonly label: string; readonly ageMs: number }[] {
+		const now = Date.now();
+		return [...this.pending.values()].map(operation => ({ label: operation.label, ageMs: now - operation.started }));
+	}
+
 	/** Resolves once nothing that was started is still outstanding. */
 	async whenSettled(): Promise<void> {
 		while (this.pending.size) {
-			await Promise.all([...this.pending]);
+			await Promise.all([...this.pending.keys()]);
 		}
+	}
+
+	/** Detaches ownership diagnostics during teardown; the operation's own lifecycle cancels work. */
+	dispose(): void {
+		this.disposed = true;
+		this.pending.clear();
 	}
 }

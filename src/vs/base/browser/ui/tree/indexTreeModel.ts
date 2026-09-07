@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IIdentityProvider } from '../list/list.js';
-import { ICollapseStateChangeEvent, ITreeElement, ITreeFilter, ITreeFilterDataResult, ITreeListSpliceData, ITreeModel, ITreeModelSpliceEvent, ITreeNode, TreeError, TreeVisibility } from './tree.js';
+import { ICollapseStateChangeEvent, ITreeElement, ITreeFilter, ITreeFilterDataResult, ITreeListSpliceData, ITreeModel, ITreeModelSpliceEvent, ITreeNode, ITreeVisibilityChange, TreeError, TreeVisibility } from './tree.js';
 import { splice, tail } from '../../../common/arrays.js';
 import { Delayer } from '../../../common/async.js';
 import { MicrotaskDelay } from '../../../common/symbols.js';
@@ -98,6 +98,8 @@ export class IndexTreeModel<T extends Exclude<unknown, undefined>, TFilterData =
 
 	private readonly _onDidSpliceModel = new Emitter<ITreeModelSpliceEvent<T, TFilterData>>();
 	readonly onDidSpliceModel = this._onDidSpliceModel.event;
+	private readonly _onDidChangeVisibility = new Emitter<readonly ITreeVisibilityChange<T, TFilterData>[]>();
+	readonly onDidChangeVisibility = this._onDidChangeVisibility.event;
 
 	private readonly _onDidSpliceRenderedNodes = new Emitter<ITreeListSpliceData<T, TFilterData>>();
 	readonly onDidSpliceRenderedNodes = this._onDidSpliceRenderedNodes.event;
@@ -314,7 +316,7 @@ export class IndexTreeModel<T extends Exclude<unknown, undefined>, TFilterData =
 			this._onDidSpliceRenderedNodes.fire({ start: listIndex, deleteCount: visibleDeleteCount, elements: treeListElementsToInsert });
 		}
 
-		this._onDidSpliceModel.fire({ insertedNodes: nodesToInsert, deletedNodes });
+		this._onDidSpliceModel.fire({ parentNode, insertedNodes: nodesToInsert, deletedNodes });
 
 		let node: IIndexTreeNode<T, TFilterData> | undefined = parentNode;
 
@@ -475,8 +477,10 @@ export class IndexTreeModel<T extends Exclude<unknown, undefined>, TFilterData =
 
 	refilter(): void {
 		const previousRenderNodeCount = this.root.renderNodeCount;
-		const toInsert = this.updateNodeAfterFilterChange(this.root);
+		const changes: ITreeVisibilityChange<T, TFilterData>[] = [];
+		const toInsert = this.updateNodeAfterFilterChange(this.root, changes);
 		this._onDidSpliceRenderedNodes.fire({ start: 0, deleteCount: previousRenderNodeCount, elements: toInsert });
+		if (changes.length) { this._onDidChangeVisibility.fire(changes); }
 		this.refilterDelayer.cancel();
 	}
 
@@ -576,17 +580,19 @@ export class IndexTreeModel<T extends Exclude<unknown, undefined>, TFilterData =
 		return node.renderNodeCount;
 	}
 
-	private updateNodeAfterFilterChange(node: IIndexTreeNode<T, TFilterData>): ITreeNode<T, TFilterData>[] {
+	private updateNodeAfterFilterChange(node: IIndexTreeNode<T, TFilterData>, changes: ITreeVisibilityChange<T, TFilterData>[]): ITreeNode<T, TFilterData>[] {
 		const previousRenderNodeCount = node.renderNodeCount;
 		const result: ITreeNode<T, TFilterData>[] = [];
 
-		this._updateNodeAfterFilterChange(node, node.visible ? TreeVisibility.Visible : TreeVisibility.Hidden, result);
+		this._updateNodeAfterFilterChange(node, node.visible ? TreeVisibility.Visible : TreeVisibility.Hidden, result, true, changes);
 		this._updateAncestorsRenderNodeCount(node.parent, result.length - previousRenderNodeCount);
 
 		return result;
 	}
 
-	private _updateNodeAfterFilterChange(node: IIndexTreeNode<T, TFilterData>, parentVisibility: TreeVisibility, result: ITreeNode<T, TFilterData>[], revealed = true): boolean {
+	private _updateNodeAfterFilterChange(node: IIndexTreeNode<T, TFilterData>, parentVisibility: TreeVisibility,
+		result: ITreeNode<T, TFilterData>[], revealed = true, changes?: ITreeVisibilityChange<T, TFilterData>[]): boolean {
+		const previous = changes ? node.children.filter(child => child.visible) : undefined;
 		let visibility: TreeVisibility;
 
 		if (node !== this.root) {
@@ -611,7 +617,7 @@ export class IndexTreeModel<T extends Exclude<unknown, undefined>, TFilterData =
 			let visibleChildIndex = 0;
 
 			for (const child of node.children) {
-				hasVisibleDescendants = this._updateNodeAfterFilterChange(child, visibility!, result, revealed && !node.collapsed) || hasVisibleDescendants;
+				hasVisibleDescendants = this._updateNodeAfterFilterChange(child, visibility!, result, revealed && !node.collapsed, changes) || hasVisibleDescendants;
 
 				if (child.visible) {
 					child.visibleChildIndex = visibleChildIndex++;
@@ -639,6 +645,12 @@ export class IndexTreeModel<T extends Exclude<unknown, undefined>, TFilterData =
 		}
 
 		this._onDidChangeRenderNodeCount.fire(node);
+		if (previous) {
+			const next = node.children.filter(child => child.visible);
+			const removed = previous.map((child, index) => ({ node: child, index })).filter(entry => !next.includes(entry.node));
+			const inserted = next.map((child, index) => ({ node: child, index })).filter(entry => !previous.includes(entry.node));
+			if (removed.length || inserted.length) { changes!.push({ parentNode: node, removed, inserted }); }
+		}
 		return node.visible;
 	}
 

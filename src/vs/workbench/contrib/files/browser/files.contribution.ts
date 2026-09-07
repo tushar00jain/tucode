@@ -8,18 +8,10 @@ import { sep } from '../../../../base/common/path.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope, IConfigurationPropertySchema } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
-import { IFileEditorInput, IEditorFactoryRegistry, EditorExtensions } from '../../../common/editor.js';
 import { AutoSaveConfiguration, HotExitConfiguration, FILES_EXCLUDE_CONFIG, FILES_ASSOCIATIONS_CONFIG, FILES_READONLY_INCLUDE_CONFIG, FILES_READONLY_EXCLUDE_CONFIG, FILES_READONLY_FROM_PERMISSIONS_CONFIG } from '../../../../platform/files/common/files.js';
-import { SortOrder, LexicographicOptions, FILE_EDITOR_INPUT_ID, BINARY_TEXT_FILE_MODE, UndoConfirmLevel, IFilesConfiguration } from '../common/files.js';
-import { TextFileEditorTracker } from './editors/textFileEditorTracker.js';
-import { TextFileSaveErrorHandler } from './editors/textFileSaveErrorHandler.js';
-import { FileEditorInput } from './editors/fileEditorInput.js';
-import { BinaryFileEditor } from './editors/binaryFileEditor.js';
+import { SortOrder, LexicographicOptions, BINARY_TEXT_FILE_MODE, UndoConfirmLevel, IFilesConfiguration } from '../common/files.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
-import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { isNative, isWeb, isWindows } from '../../../../base/common/platform.js';
-import { ExplorerViewletViewsContribution } from './explorerViewlet.js';
-import { IEditorPaneRegistry, EditorPaneDescriptor } from '../../../browser/editor.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ExplorerService, UNDO_REDO_SOURCE } from './explorerService.js';
@@ -31,10 +23,8 @@ import { DirtyFilesIndicator } from '../common/dirtyFilesIndicator.js';
 import { UndoCommand, RedoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IExplorerService } from './files.js';
-import { FileEditorInputSerializer, FileEditorWorkingCopyEditorHandler } from './editors/fileEditorHandler.js';
 import { ModesRegistry } from '../../../../editor/common/languages/modesRegistry.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { TextFileEditor } from './editors/textFileEditor.js';
 
 class FileUriLabelContribution implements IWorkbenchContribution {
 
@@ -56,57 +46,6 @@ class FileUriLabelContribution implements IWorkbenchContribution {
 }
 
 registerSingleton(IExplorerService, ExplorerService, InstantiationType.Delayed);
-
-// Register file editors
-
-Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(
-		TextFileEditor,
-		TextFileEditor.ID,
-		nls.localize('textFileEditor', "Text File Editor")
-	),
-	[
-		new SyncDescriptor(FileEditorInput)
-	]
-);
-
-Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(
-		BinaryFileEditor,
-		BinaryFileEditor.ID,
-		nls.localize('binaryFileEditor', "Binary File Editor")
-	),
-	[
-		new SyncDescriptor(FileEditorInput)
-	]
-);
-
-// Register default file input factory
-Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerFileEditorFactory({
-
-	typeId: FILE_EDITOR_INPUT_ID,
-
-	createFileEditor: (resource, preferredResource, preferredName, preferredDescription, preferredEncoding, preferredLanguageId, preferredContents, instantiationService): IFileEditorInput => {
-		return instantiationService.createInstance(FileEditorInput, resource, preferredResource, preferredName, preferredDescription, preferredEncoding, preferredLanguageId, preferredContents);
-	},
-
-	isFileEditor: (obj): obj is IFileEditorInput => {
-		return obj instanceof FileEditorInput;
-	}
-});
-
-// Register Editor Input Serializer & Handler
-Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(FILE_EDITOR_INPUT_ID, FileEditorInputSerializer);
-registerWorkbenchContribution2(FileEditorWorkingCopyEditorHandler.ID, FileEditorWorkingCopyEditorHandler, WorkbenchPhase.BlockRestore);
-
-// Register Explorer views
-registerWorkbenchContribution2(ExplorerViewletViewsContribution.ID, ExplorerViewletViewsContribution, WorkbenchPhase.BlockStartup);
-
-// Register Text File Editor Tracker
-registerWorkbenchContribution2(TextFileEditorTracker.ID, TextFileEditorTracker, WorkbenchPhase.BlockStartup);
-
-// Register Text File Save Error Handler
-registerWorkbenchContribution2(TextFileSaveErrorHandler.ID, TextFileSaveErrorHandler, WorkbenchPhase.BlockStartup);
 
 // Register uri display for file uris
 registerWorkbenchContribution2(FileUriLabelContribution.ID, FileUriLabelContribution, WorkbenchPhase.BlockStartup);

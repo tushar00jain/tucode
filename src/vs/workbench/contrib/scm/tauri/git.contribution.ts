@@ -3,19 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
+import { basename } from '../../../../base/common/path.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Command } from '../../../../editor/common/languages.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
-import { ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
-import { ITextModelContentProvider, ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { localize } from '../../../../nls.js';
 import { MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IConfirmation, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { ContextKeyExpr, ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -25,7 +26,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { IDecorationsService } from '../../../services/decorations/common/decorations.js';
+import { IDecorationData, IDecorationsService } from '../../../services/decorations/common/decorations.js';
 import { IQuickDiffService } from '../common/quickDiff.js';
 import { ISCMRepository, ISCMService } from '../common/scm.js';
 import { CoalescingRefresh } from './coalescingRefresh.js';
@@ -87,28 +88,6 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 
 //#endregion
 
-/**
- * Port of `SCMInputBoxContentProvider` in `vs/workbench/api/browser/mainThreadSCM.ts`, so
- * that a commit input box model resolved by URI — rather than taken off the provider — is
- * created on demand.
- */
-class SCMInputBoxContentProvider extends Disposable implements ITextModelContentProvider {
-
-	constructor(
-		textModelService: ITextModelService,
-		private readonly modelService: IModelService,
-		private readonly languageService: ILanguageService
-	) {
-		super();
-		this._register(textModelService.registerTextModelContentProvider(Schemas.vscodeSourceControl, this));
-	}
-
-	async provideTextContent(resource: URI): Promise<ITextModel | null> {
-		return this.modelService.getModel(resource)
-			?? this.modelService.createModel('', this.languageService.createById('scminput'), resource);
-	}
-}
-
 interface IGitRepository {
 	readonly root: string;
 	readonly rootUri: URI;
@@ -131,6 +110,13 @@ export class TauriGitContribution extends Disposable implements IWorkbenchContri
 
 	private readonly refresher = this._register(new CoalescingRefresh(() => this.doRefresh()));
 
+	/**
+	 * The first reconciliation, which is also the first status. Nothing in tscode waits for it —
+	 * the view is driven by `ISCMViewService`'s events — but a frontend that paints a single frame
+	 * and exits has to know when there is something to paint.
+	 */
+	readonly whenDiscovered: Promise<void>;
+
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
 		@ISCMService private readonly scmService: ISCMService,
@@ -138,19 +124,17 @@ export class TauriGitContribution extends Disposable implements IWorkbenchContri
 		@IDecorationsService private readonly decorationsService: IDecorationsService,
 		@IFileService private readonly fileService: IFileService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IDialogService private readonly dialogService: IDialogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@ILogService private readonly logService: ILogService,
 		@IModelService private readonly modelService: IModelService,
-		@ILanguageService private readonly languageService: ILanguageService,
-		@ITextModelService textModelService: ITextModelService
+		@ILanguageService private readonly languageService: ILanguageService
 	) {
 		super();
 
 		this.client = new ScmChannelClient(mainProcessService.getChannel(SCM_CHANNEL_NAME));
-
-		this._register(new SCMInputBoxContentProvider(textModelService, this.modelService, this.languageService));
 
 		this.fileSystemProvider = this._register(new TauriGitFileSystemProvider(this.client, uri => this.providerFor(uri)));
 		this._register(this.fileService.registerProvider(GIT_SCHEME, this.fileSystemProvider));
@@ -167,7 +151,7 @@ export class TauriGitContribution extends Disposable implements IWorkbenchContri
 			}
 		}));
 
-		this.discover();
+		this.whenDiscovered = this.discover();
 	}
 
 	//#region Repository lifecycle
@@ -355,6 +339,24 @@ export class TauriGitContribution extends Disposable implements IWorkbenchContri
 
 	//#region Lookup
 
+	/**
+	 * The badge, colour and status letter for a path, as `TauriGitDecorationProvider` builds them.
+	 * `IDecorationsService` cannot answer this — `IDecoration` carries only class names, and the
+	 * `IDecorationData` behind them is handed to nobody — so a frontend that has no CSS reads the
+	 * provider directly. Repositories own disjoint paths, so the first answer is the answer, which
+	 * is also how `DecorationsService.getDecoration` combines them.
+	 */
+	provideDecorations(uri: URI): IDecorationData | undefined {
+		for (const repository of this.repositories.values()) {
+			const decoration = repository.decorations.provideDecorations(uri, CancellationToken.None);
+			if (decoration) {
+				return decoration;
+			}
+		}
+
+		return undefined;
+	}
+
 	private providerFor(uri: URI): TauriGitSCMProvider | undefined {
 		let best: TauriGitSCMProvider | undefined;
 
@@ -473,9 +475,16 @@ export class TauriGitContribution extends Disposable implements IWorkbenchContri
 			});
 		});
 
-		const mutateResources = (id: string, run: (root: string, paths: string[]) => Promise<void>) => {
+		const mutateResources = (id: string, run: (root: string, paths: string[]) => Promise<void>, confirm?: (paths: string[]) => IConfirmation) => {
 			register(id, async (...args) => {
 				const byProvider = this.pathsByRepository(TauriGitContribution.resourcesOf(args));
+
+				if (confirm) {
+					const paths = [...byProvider.values()].flat();
+					if (!paths.length || !(await this.dialogService.confirm(confirm(paths))).confirmed) {
+						return;
+					}
+				}
 
 				await this.mutate(async () => {
 					for (const [provider, paths] of byProvider) {
@@ -495,8 +504,19 @@ export class TauriGitContribution extends Disposable implements IWorkbenchContri
 			mutateResources(id, (root, paths) => this.client.unstage(root, paths));
 		}
 
+		// Discard is the one mutation that cannot be undone, and the git extension asks before it
+		// runs — one file by name, several by count, with *Discard Changes* as the primary button.
+		// The question is the extension's `commands.ts`; the surface is `IDialogService`, which is
+		// `tui/workbench/dialogHandler.ts` here.
 		for (const id of ['git.clean', 'git.cleanAll', 'git.cleanAllTracked', 'git.cleanAllUntracked']) {
-			mutateResources(id, (root, paths) => this.client.discard(root, paths));
+			mutateResources(id, (root, paths) => this.client.discard(root, paths), paths => ({
+				message: paths.length === 1
+					? localize('git.confirmDiscard', "Are you sure you want to discard changes in {0}?", basename(paths[0]))
+					: localize('git.confirmDiscardMany', "Are you sure you want to discard changes in {0} files?", paths.length),
+				detail: localize('git.irreversible', "This is IRREVERSIBLE!\nYour current working set will be FOREVER LOST if you proceed."),
+				primaryButton: localize('git.discardTracked', "Discard Changes"),
+				type: 'warning'
+			}));
 		}
 
 		register('git.openChange', async (...args) => {

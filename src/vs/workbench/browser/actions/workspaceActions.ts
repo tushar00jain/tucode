@@ -3,6 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+export { OpenFileAction } from './openFileAction.js';
+export { OpenFolderAction } from './openFolderAction.js';
+export { OpenFileFolderAction } from './openFileFolderAction.js';
+
 import { localize, localize2 } from '../../../nls.js';
 import { ITelemetryData } from '../../../platform/telemetry/common/telemetry.js';
 import { IWorkspaceContextService, WorkbenchState, IWorkspaceFolder, hasWorkspaceFileExtension } from '../../../platform/workspace/common/workspace.js';
@@ -20,67 +24,10 @@ import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.j
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { IWorkspacesService } from '../../../platform/workspaces/common/workspaces.js';
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
-import { IsMacNativeContext } from '../../../platform/contextkey/common/contextkeys.js';
 import { ILocalizedString } from '../../../platform/action/common/action.js';
 import { Categories } from '../../../platform/action/common/actionCommonCategories.js';
 
 const workspacesCategory: ILocalizedString = localize2('workspaces', 'Workspaces');
-
-export class OpenFileAction extends Action2 {
-
-	static readonly ID = 'workbench.action.files.openFile';
-
-	constructor() {
-		super({
-			id: OpenFileAction.ID,
-			title: localize2('openFile', 'Open File...'),
-			category: Categories.File,
-			f1: true,
-			keybinding: {
-				when: IsMacNativeContext.toNegated(),
-				weight: KeybindingWeight.WorkbenchContrib,
-				primary: KeyMod.CtrlCmd | KeyCode.KeyO
-			}
-		});
-	}
-
-	override async run(accessor: ServicesAccessor, data?: ITelemetryData): Promise<void> {
-		const fileDialogService = accessor.get(IFileDialogService);
-
-		return fileDialogService.pickFileAndOpen({ forceNewWindow: false, telemetryExtraData: data });
-	}
-}
-
-export class OpenFolderAction extends Action2 {
-
-	static readonly ID = 'workbench.action.files.openFolder';
-
-	constructor() {
-		super({
-			id: OpenFolderAction.ID,
-			title: localize2('openFolder', 'Open Folder...'),
-			category: Categories.File,
-			f1: true,
-			precondition: OpenFolderWorkspaceSupportContext,
-			keybinding: {
-				weight: KeybindingWeight.WorkbenchContrib,
-				primary: undefined,
-				linux: {
-					primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyMod.CtrlCmd | KeyCode.KeyO)
-				},
-				win: {
-					primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyMod.CtrlCmd | KeyCode.KeyO)
-				}
-			}
-		});
-	}
-
-	override async run(accessor: ServicesAccessor, data?: ITelemetryData): Promise<void> {
-		const fileDialogService = accessor.get(IFileDialogService);
-
-		return fileDialogService.pickFolderAndOpen({ forceNewWindow: false, telemetryExtraData: data });
-	}
-}
 
 export class OpenFolderViaWorkspaceAction extends Action2 {
 
@@ -109,32 +56,6 @@ export class OpenFolderViaWorkspaceAction extends Action2 {
 		const commandService = accessor.get(ICommandService);
 
 		return commandService.executeCommand(SET_ROOT_FOLDER_COMMAND_ID);
-	}
-}
-
-export class OpenFileFolderAction extends Action2 {
-
-	static readonly ID = 'workbench.action.files.openFileFolder';
-	static readonly LABEL: ILocalizedString = localize2('openFileFolder', 'Open...');
-
-	constructor() {
-		super({
-			id: OpenFileFolderAction.ID,
-			title: OpenFileFolderAction.LABEL,
-			category: Categories.File,
-			f1: true,
-			precondition: ContextKeyExpr.and(IsMacNativeContext, OpenFolderWorkspaceSupportContext),
-			keybinding: {
-				weight: KeybindingWeight.WorkbenchContrib,
-				primary: KeyMod.CtrlCmd | KeyCode.KeyO
-			}
-		});
-	}
-
-	override async run(accessor: ServicesAccessor, data?: ITelemetryData): Promise<void> {
-		const fileDialogService = accessor.get(IFileDialogService);
-
-		return fileDialogService.pickFileFolderAndOpen({ forceNewWindow: false, telemetryExtraData: data });
 	}
 }
 
@@ -324,10 +245,7 @@ class DuplicateWorkspaceInNewWindowAction extends Action2 {
 
 registerAction2(AddRootFolderAction);
 registerAction2(RemoveRootFolderAction);
-registerAction2(OpenFileAction);
-registerAction2(OpenFolderAction);
 registerAction2(OpenFolderViaWorkspaceAction);
-registerAction2(OpenFileFolderAction);
 registerAction2(OpenWorkspaceAction);
 registerAction2(OpenWorkspaceConfigFileAction);
 registerAction2(CloseWorkspaceAction);
@@ -339,41 +257,11 @@ registerAction2(DuplicateWorkspaceInNewWindowAction);
 MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
 	group: '2_open',
 	command: {
-		id: OpenFileAction.ID,
-		title: localize({ key: 'miOpenFile', comment: ['&& denotes a mnemonic'] }, "&&Open File...")
-	},
-	order: 1,
-	when: IsMacNativeContext.toNegated()
-});
-
-MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
-	group: '2_open',
-	command: {
-		id: OpenFolderAction.ID,
-		title: localize({ key: 'miOpenFolder', comment: ['&& denotes a mnemonic'] }, "Open &&Folder...")
-	},
-	order: 2,
-	when: OpenFolderWorkspaceSupportContext
-});
-
-MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
-	group: '2_open',
-	command: {
 		id: OpenFolderViaWorkspaceAction.ID,
 		title: localize({ key: 'miOpenFolder', comment: ['&& denotes a mnemonic'] }, "Open &&Folder...")
 	},
 	order: 2,
 	when: ContextKeyExpr.and(OpenFolderWorkspaceSupportContext.toNegated(), WorkbenchStateContext.isEqualTo('workspace'))
-});
-
-MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
-	group: '2_open',
-	command: {
-		id: OpenFileFolderAction.ID,
-		title: localize({ key: 'miOpen', comment: ['&& denotes a mnemonic'] }, "&&Open...")
-	},
-	order: 1,
-	when: ContextKeyExpr.and(IsMacNativeContext, OpenFolderWorkspaceSupportContext)
 });
 
 MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {

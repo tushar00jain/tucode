@@ -1,0 +1,82 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		10AA00000000000000000001 /* EventLoopUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10AA00000000000000000011 /* EventLoopUITests.swift */; };
+		10AA00000000000000000003 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10AA00000000000000000013 /* XCTest.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		10AA00000000000000000010 /* TucodeMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TucodeMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		10AA00000000000000000011 /* EventLoopUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLoopUITests.swift; sourceTree = "<group>"; };
+		10AA00000000000000000013 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		10AA00000000000000000020 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (10AA00000000000000000003,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		10AA00000000000000000030 = {isa = PBXGroup; children = (10AA00000000000000000031, 10AA00000000000000000032, 10AA00000000000000000033,); sourceTree = "<group>"; };
+		10AA00000000000000000031 /* Tests */ = {isa = PBXGroup; children = (10AA00000000000000000011,); path = Tests; sourceTree = "<group>"; };
+		10AA00000000000000000032 /* Frameworks */ = {isa = PBXGroup; children = (10AA00000000000000000013,); name = Frameworks; sourceTree = "<group>"; };
+		10AA00000000000000000033 /* Products */ = {isa = PBXGroup; children = (10AA00000000000000000010,); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		10AA00000000000000000040 /* TucodeMacUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 10AA00000000000000000051;
+			buildPhases = (10AA00000000000000000021, 10AA00000000000000000020, 10AA00000000000000000022,);
+			buildRules = ();
+			dependencies = ();
+			name = TucodeMacUITests;
+			productName = TucodeMacUITests;
+			productReference = 10AA00000000000000000010;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		10AA00000000000000000041 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 2660; LastUpgradeCheck = 2660; TargetAttributes = {10AA00000000000000000040 = {CreatedOnToolsVersion = 26.6; }; }; };
+			buildConfigurationList = 10AA00000000000000000050;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base,);
+			mainGroup = 10AA00000000000000000030;
+			productRefGroup = 10AA00000000000000000033;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (10AA00000000000000000040,);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		10AA00000000000000000022 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		10AA00000000000000000021 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (10AA00000000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		10AA00000000000000000060 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; ARCHS = arm64; EXCLUDED_ARCHS = x86_64; MACOSX_DEPLOYMENT_TARGET = 14.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+		10AA00000000000000000061 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; ARCHS = arm64; EXCLUDED_ARCHS = x86_64; MACOSX_DEPLOYMENT_TARGET = 14.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+		10AA00000000000000000062 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ARCHS = arm64; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; EXCLUDED_ARCHS = x86_64; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks"; MACOSX_DEPLOYMENT_TARGET = 14.0; ONLY_ACTIVE_ARCH = YES; PRODUCT_BUNDLE_IDENTIFIER = com.tucode.macUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; }; name = Debug; };
+		10AA00000000000000000063 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ARCHS = arm64; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; EXCLUDED_ARCHS = x86_64; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks"; MACOSX_DEPLOYMENT_TARGET = 14.0; ONLY_ACTIVE_ARCH = YES; PRODUCT_BUNDLE_IDENTIFIER = com.tucode.macUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		10AA00000000000000000050 = {isa = XCConfigurationList; buildConfigurations = (10AA00000000000000000060, 10AA00000000000000000061,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		10AA00000000000000000051 = {isa = XCConfigurationList; buildConfigurations = (10AA00000000000000000062, 10AA00000000000000000063,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = 10AA00000000000000000041;
+}

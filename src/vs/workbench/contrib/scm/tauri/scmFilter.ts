@@ -67,6 +67,12 @@ export interface ISCMViewRoot {
 	readonly path: readonly string[];
 }
 
+/** Semantic equality for a root resolved from a fresh query against the already-loaded SCM graph. */
+export function sameSCMViewRoot(one: ISCMViewRoot | undefined, other: ISCMViewRoot | undefined): boolean {
+	return one === other || (!!one && !!other && one.repository === other.repository &&
+		one.path.length === other.path.length && one.path.every((segment, index) => segment === other.path[index]));
+}
+
 /** Where the root's path lands inside one group's tree, or nothing if that group has no such folder. */
 export function folderAt(group: ISCMResourceGroup, path: readonly string[]): SCMFolder | undefined {
 	let node: SCMFolder | undefined = group.resourceTree.root;

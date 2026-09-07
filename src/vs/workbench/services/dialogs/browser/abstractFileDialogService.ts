@@ -5,7 +5,7 @@
 
 import * as nls from '../../../../nls.js';
 import { IWindowOpenable, isWorkspaceToOpen, isFileToOpen } from '../../../../platform/window/common/window.js';
-import { IPickAndOpenOptions, ISaveDialogOptions, IOpenDialogOptions, FileFilter, IFileDialogService, IDialogService, ConfirmResult, getFileNamesMessage } from '../../../../platform/dialogs/common/dialogs.js';
+import { IPickAndOpenOptions, ISaveDialogOptions, IOpenDialogOptions, FileFilter, IFileDialogService, IDialogService, ConfirmResult } from '../../../../platform/dialogs/common/dialogs.js';
 import { isSavedWorkspace, isTemporaryWorkspace, IWorkspaceContextService, WorkbenchState, WORKSPACE_EXTENSION } from '../../../../platform/workspace/common/workspace.js';
 import { IHistoryService } from '../../history/common/history.js';
 import { IWorkbenchEnvironmentService } from '../../environment/common/environmentService.js';
@@ -19,7 +19,6 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IHostService } from '../../host/browser/host.js';
-import Severity from '../../../../base/common/severity.js';
 import { coalesce, distinct } from '../../../../base/common/arrays.js';
 import { trim } from '../../../../base/common/strings.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
@@ -32,6 +31,7 @@ import { ICodeEditorService } from '../../../../editor/browser/services/codeEdit
 import { IEditorService } from '../../editor/common/editorService.js';
 import { EditorOpenSource } from '../../../../platform/editor/common/editor.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { SaveConfirmDialog } from './saveConfirmDialog.js';
 import { IRemoteAgentService } from '../../remote/common/remoteAgentService.js';
 
 export abstract class AbstractFileDialogService implements IFileDialogService {
@@ -165,60 +165,7 @@ export abstract class AbstractFileDialogService implements IFileDialogService {
 	}
 
 	async showSaveConfirm(fileNamesOrResources: (string | URI)[]): Promise<ConfirmResult> {
-		if (this.skipDialogs()) {
-			this.logService.trace('FileDialogService: refused to show save confirmation dialog in tests.');
-
-			// no veto when we are in extension dev testing mode because we cannot assume we run interactive
-			return ConfirmResult.DONT_SAVE;
-		}
-
-		return this.doShowSaveConfirm(fileNamesOrResources);
-	}
-
-	private skipDialogs(): boolean {
-		if (this.environmentService.enableSmokeTestDriver) {
-			this.logService.warn('DialogService: Dialog requested during smoke test.');
-		}
-		// integration tests
-		return this.environmentService.isExtensionDevelopment && !!this.environmentService.extensionTestsLocationURI;
-	}
-
-	private async doShowSaveConfirm(fileNamesOrResources: (string | URI)[]): Promise<ConfirmResult> {
-		if (fileNamesOrResources.length === 0) {
-			return ConfirmResult.DONT_SAVE;
-		}
-
-		let message: string;
-		let detail = nls.localize('saveChangesDetail', "Your changes will be lost if you don't save them.");
-		if (fileNamesOrResources.length === 1) {
-			message = nls.localize('saveChangesMessage', "Do you want to save the changes you made to {0}?", typeof fileNamesOrResources[0] === 'string' ? fileNamesOrResources[0] : resources.basename(fileNamesOrResources[0]));
-		} else {
-			message = nls.localize('saveChangesMessages', "Do you want to save the changes to the following {0} files?", fileNamesOrResources.length);
-			detail = getFileNamesMessage(fileNamesOrResources) + '\n' + detail;
-		}
-
-		const { result } = await this.dialogService.prompt<ConfirmResult>({
-			type: Severity.Warning,
-			message,
-			detail,
-			buttons: [
-				{
-					label: fileNamesOrResources.length > 1 ?
-						nls.localize({ key: 'saveAll', comment: ['&& denotes a mnemonic'] }, "&&Save All") :
-						nls.localize({ key: 'save', comment: ['&& denotes a mnemonic'] }, "&&Save"),
-					run: () => ConfirmResult.SAVE
-				},
-				{
-					label: nls.localize({ key: 'dontSave', comment: ['&& denotes a mnemonic'] }, "Do&&n't Save"),
-					run: () => ConfirmResult.DONT_SAVE
-				}
-			],
-			cancelButton: {
-				run: () => ConfirmResult.CANCEL
-			}
-		});
-
-		return result;
+		return this.instantiationService.createInstance(SaveConfirmDialog).showSaveConfirm(fileNamesOrResources);
 	}
 
 	protected addFileSchemaIfNeeded(schema: string, _isFolder?: boolean): string[] {

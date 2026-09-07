@@ -1,0 +1,21 @@
+# Upstream counterpart: src-tauri/apps/tscode/Cargo.toml
+
+[package]
+name = "tscode-host"
+description = "tscode's backend host - the six channels over stdio, with no window"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+license = "MIT"
+
+# The `[[bin]]` name is the executable's name, and what the frontend transport looks for
+# under `src-tauri/target/{debug,release}/`.
+[[bin]]
+name = "tscode-host"
+path = "src/main.rs"
+
+[dependencies]
+tscode-app = { workspace = true }
+
+[lints]
+workspace = true

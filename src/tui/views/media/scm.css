@@ -1,0 +1,4 @@
+/* Row actions use terminal keys and the upstream context menu. */
+.terminal-scm .scm-provider > .actions {
+	display: none;
+}

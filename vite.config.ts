@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 
 const debug = !!process.env.TAURI_ENV_DEBUG;
 
@@ -18,6 +19,7 @@ const productJson = readConfigJson('./product.json');
 const packageJson = JSON.parse(readConfigJson('./package.json')) as { version: string };
 
 export default defineConfig({
+	base: './',
 	// Tauri drives the dev server, so its output must survive and its port must be fixed.
 	clearScreen: false,
 	envPrefix: ['VITE_', 'TAURI_ENV_*'],
@@ -32,6 +34,9 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: [
+			// One IChannel adapter; the Mac bundle replaces only Node's transport.
+			{ find: /\.\.\/node\/ipc\.host\.js$/, replacement: fileURLToPath(new URL(
+				'./src/vs/base/parts/ipc/wry/ipc.wry.ts', import.meta.url)) },
 			// vs/base/browser/ui/codicons/codicon/codicon.css asks for ./codicon.ttf, which
 			// upstream drops next to it from @vscode/codicons during its own build.
 			{ find: /^\.\/codicon\.ttf$/, replacement: '@vscode/codicons/dist/codicon.ttf' }
@@ -45,15 +50,7 @@ export default defineConfig({
 			'vscode-textmate',
 			'vscode-oniguruma',
 			'@vscode/iconv-lite-umd',
-			'jschardet',
-			'@xterm/xterm',
-			'@xterm/addon-clipboard',
-			'@xterm/addon-image',
-			'@xterm/addon-progress',
-			'@xterm/addon-search',
-			'@xterm/addon-serialize',
-			'@xterm/addon-unicode11',
-			'@xterm/addon-webgl'
+			'jschardet'
 		]
 	},
 	worker: {
@@ -61,11 +58,11 @@ export default defineConfig({
 	},
 	build: {
 		target: 'es2022',
-		outDir: 'dist',
+		outDir: 'dist-mac',
 		// Debug symbols, in JS. Off unless Tauri says this is a debug build.
 		minify: debug ? false : 'esbuild',
 		sourcemap: debug,
-		// The workbench is one large graph; splitting it only adds round trips.
+		// The editor service graph is intentionally emitted as one application chunk.
 		chunkSizeWarningLimit: 10_000
 	}
 });

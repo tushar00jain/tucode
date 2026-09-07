@@ -5,7 +5,7 @@
 
 import { CharCode } from '../../../base/common/charCode.js';
 import type { Event } from '../../../base/common/event.js';
-import { isChrome, isEdge, isFirefox, isLinux, isMacintosh, isSafari, isWeb, isWindows } from '../../../base/common/platform.js';
+import { isChrome, isEdge, isFirefox, isLinux, isMacintosh, isSafari, isWeb, isWindows } from './contextPlatform.js';
 import { isFalsyOrWhitespace } from '../../../base/common/strings.js';
 import { Scanner, type LexingError, type Token, TokenType } from './scanner.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';

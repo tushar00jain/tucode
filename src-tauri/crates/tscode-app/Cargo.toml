@@ -1,6 +1,6 @@
 [package]
 name = "tscode-app"
-description = "tscode's Tauri app shell - the channel registry and the app setup"
+description = "Shared backend channels and transports"
 version = "0.1.0"
 edition = "2021"
 rust-version.workspace = true
@@ -9,18 +9,17 @@ license = "MIT"
 [lib]
 name = "tscode_app"
 path = "src/lib.rs"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-tauri = { workspace = true }
-tauri-plugin-dialog = { workspace = true }
-tauri-plugin-log = { workspace = true }
-
 async-trait = { workspace = true }
+dirs = { workspace = true }
+fern = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+# `io-std` and `io-util` on top of the workspace set: the transport is stdin and
+# stdout, and no other member reads them.
+tokio = { workspace = true, features = ["io-std", "io-util"] }
 tokio-util = { workspace = true }
 
 tscode-fs = { path = "../tscode-fs" }

@@ -53,6 +53,30 @@ export interface IParsedLabelWithIcons {
 	readonly iconOffsets?: readonly number[];
 }
 
+export interface ILabelIconSegment {
+	readonly text?: string;
+	readonly iconClassNames?: readonly string[];
+}
+
+const labelWithIconSegmentsRegex = new RegExp(`(\\\\)?\\$\\((${ThemeIcon.iconNameExpression}(?:${ThemeIcon.iconModifierExpression})?)\\)`, 'g');
+
+/** The single platform-neutral decoder for text containing codicon markers. */
+export function parseLabelWithIconSegments(input: string): readonly ILabelIconSegment[] {
+	labelWithIconSegmentsRegex.lastIndex = 0;
+	const result: ILabelIconSegment[] = [];
+	let start = 0;
+	for (let match: RegExpExecArray | null; (match = labelWithIconSegmentsRegex.exec(input));) {
+		if (start < match.index) { result.push(Object.freeze({ text: input.substring(start, match.index) })); }
+		const [, escaped, id] = match;
+		result.push(escaped
+			? Object.freeze({ text: `$(${id})` })
+			: Object.freeze({ iconClassNames: Object.freeze(ThemeIcon.asClassNameArray({ id })) }));
+		start = match.index + match[0].length;
+	}
+	if (start < input.length) { result.push(Object.freeze({ text: input.substring(start) })); }
+	return Object.freeze(result);
+}
+
 const _parseIconsRegex = new RegExp(`\\$\\(${ThemeIcon.iconNameCharacter}+\\)`, 'g');
 
 /**

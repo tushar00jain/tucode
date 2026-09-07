@@ -14,7 +14,7 @@ import { IInstantiationService } from '../../../../../platform/instantiation/com
 import { ILabelService } from '../../../../../platform/label/common/label.js';
 import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IAITextQuery, IFileMatch, ITextSearchPreviewOptions, resultIsMatch } from '../../../../services/search/common/search.js';
-import { NotebookEditorWidget } from '../../../notebook/browser/notebookEditorWidget.js';
+import type { NotebookEditorWidget } from '../../../notebook/browser/notebookEditorWidget.js';
 import { IReplaceService } from '../replace.js';
 
 import { FileMatchImpl } from '../searchTreeModel/fileMatch.js';

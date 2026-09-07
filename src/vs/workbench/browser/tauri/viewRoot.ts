@@ -159,6 +159,46 @@ export interface INodes<T> {
 	name(node: T): string;
 }
 
+function bestChild<T>(children: readonly T[], segment: string, nodes: INodes<T>, cache: FuzzyScorerCache): T | undefined {
+	const query = prepareQuery(segment);
+	const accessor = nameAccessor(nodes.name);
+	let best: T | undefined;
+	let bestScore = 0;
+
+	for (const child of children) {
+		const { score } = scoreItemFuzzy(child, query, true, accessor, cache);
+		if (score > bestScore) {
+			bestScore = score;
+			best = child;
+		}
+	}
+
+	return best;
+}
+
+/**
+ * The same descent over a source whose relevant children are already loaded. `undefined` means a
+ * child lookup is asynchronous, so the caller must use `descend` and its owned effect queue.
+ */
+export function descendLoaded<T>(nodes: INodes<T>, path: readonly string[]): { root: T | undefined; resolved: boolean } | undefined {
+	const cache: FuzzyScorerCache = Object.create(null);
+	let root: T | undefined;
+
+	for (const segment of path) {
+		const children = nodes.children(root);
+		if (children instanceof Promise || (children && typeof (children as unknown as { then?: unknown }).then === 'function')) {
+			return undefined;
+		}
+		const best = bestChild(children as readonly T[], segment, nodes, cache);
+		if (!best) {
+			return { root, resolved: false };
+		}
+		root = best;
+	}
+
+	return { root, resolved: true };
+}
+
 /**
  * Where a path prefix lands, descending one segment at a time from the pane's top level — so the
  * first segment names one of `children(undefined)` and `undefined` is the top itself, which is where
@@ -174,21 +214,10 @@ export interface INodes<T> {
  */
 export async function descend<T>(nodes: INodes<T>, path: readonly string[]): Promise<{ root: T | undefined; resolved: boolean }> {
 	const cache: FuzzyScorerCache = Object.create(null);
-	const accessor = nameAccessor(nodes.name);
 	let root: T | undefined;
 
 	for (const segment of path) {
-		const query = prepareQuery(segment);
-		let best: T | undefined;
-		let bestScore = 0;
-
-		for (const child of await nodes.children(root)) {
-			const { score } = scoreItemFuzzy(child, query, true, accessor, cache);
-			if (score > bestScore) {
-				bestScore = score;
-				best = child;
-			}
-		}
+		const best = bestChild(await nodes.children(root), segment, nodes, cache);
 
 		if (!best) {
 			return { root, resolved: false };

@@ -42,8 +42,8 @@ import { CanEditInputContext, CanScrollHorizontallyContext, guiRuleId, guiRuleWh
 //#region --- the commands this frontend lacks
 //
 // Each is the command a row names, at the id the row names it by, so the row is one row.
-// The three `git.*` wrappers are here for a reason worth stating: `git.stage`, `git.unstage` and
-// `git.openChange` all resolve the resources they act on *out of their arguments*, which a menu
+// The two `git.*` wrappers are here for a reason worth stating: `git.stage` and `git.unstage`
+// resolve the resources they act on *out of their arguments*, which a menu
 // item carries and a keystroke does not — so binding those ids bare would be a key that does
 // nothing. The wrapper supplies the focused rows, which is what the context menu supplies.
 
@@ -258,8 +258,7 @@ const COMMANDS: { id: string; title: string; handler: ICommandHandler }[] = [
 		handler: editingKey('deleteAllLeft', lineStartBefore)
 	},
 	{ id: 'tscode.scm.stage', title: localize('tscode.scm.stage', "Stage Changes"), handler: forwardRows('git.stage') },
-	{ id: 'tscode.scm.unstage', title: localize('tscode.scm.unstage', "Unstage Changes"), handler: forwardRows('git.unstage') },
-	{ id: 'tscode.scm.openChange', title: localize('tscode.scm.openChange', "Open Changes"), handler: forwardRows('git.openChange') }
+	{ id: 'tscode.scm.unstage', title: localize('tscode.scm.unstage', "Unstage Changes"), handler: forwardRows('git.unstage') }
 ];
 
 /**

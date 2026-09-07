@@ -1403,20 +1403,23 @@ export class QuickInputList extends Disposable {
 		this._tree.domFocus();
 	}
 
-	layout(maxHeight?: number): void {
+	private hostViewport: { height: number; width: number } | undefined;
+
+	layout(maxHeight?: number, viewport?: { height: number; width: number }): void {
+		if (viewport) { this.hostViewport = viewport; }
 		this._tree.getHTMLElement().style.maxHeight = maxHeight ? `${
 			// Make sure height aligns with list item heights
 			Math.floor(maxHeight / 44) * 44
 			// Add some extra height so that it's clear there's more to scroll
 			+ 6
 			}px` : '';
-		this._tree.layout();
+		this._tree.layout(this.hostViewport?.height, this.hostViewport?.width);
 	}
 
 	filter(query: string): boolean {
 		this._lastQueryString = query;
 		if (!(this._sortByLabel || this._matchOnLabel || this._matchOnDescription || this._matchOnDetail)) {
-			this._tree.layout();
+			this._tree.layout(this.hostViewport?.height, this.hostViewport?.width);
 			return false;
 		}
 
@@ -1489,7 +1492,7 @@ export class QuickInputList extends Disposable {
 			// Render the full tree
 			: this._elementTree
 		);
-		this._tree.layout();
+		this._tree.layout(this.hostViewport?.height, this.hostViewport?.width);
 		return true;
 	}
 

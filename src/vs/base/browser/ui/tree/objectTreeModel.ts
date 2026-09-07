@@ -5,7 +5,7 @@
 
 import { IIdentityProvider } from '../list/list.js';
 import { IIndexTreeModelOptions, IIndexTreeModelSpliceOptions, IndexTreeModel } from './indexTreeModel.js';
-import { ICollapseStateChangeEvent, IObjectTreeElement, ITreeElement, ITreeListSpliceData, ITreeModel, ITreeModelSpliceEvent, ITreeNode, ITreeSorter, ObjectTreeElementCollapseState, TreeError } from './tree.js';
+import { ICollapseStateChangeEvent, IObjectTreeElement, ITreeElement, ITreeListSpliceData, ITreeModel, ITreeModelSpliceEvent, ITreeNode, ITreeSorter, ITreeVisibilityChange, ObjectTreeElementCollapseState, TreeError } from './tree.js';
 import { Event } from '../../../common/event.js';
 import { Iterable } from '../../../common/iterator.js';
 
@@ -13,6 +13,7 @@ export type ITreeNodeCallback<T, TFilterData> = (node: ITreeNode<T, TFilterData>
 
 export interface IObjectTreeModel<T, TFilterData = void> extends ITreeModel<T | null, TFilterData, T | null> {
 	setChildren(element: T | null, children: Iterable<IObjectTreeElement<T>> | undefined, options?: IObjectTreeModelSetChildrenOptions<T, TFilterData>): void;
+	getNodeByIdentity(identity: string): ITreeNode<T, TFilterData> | undefined;
 	resort(element?: T | null, recursive?: boolean): void;
 }
 
@@ -35,6 +36,7 @@ export class ObjectTreeModel<T, TFilterData = void> implements IObjectTreeModel<
 	private sorter?: ITreeSorter<{ element: T }>;
 
 	readonly onDidSpliceModel: Event<ITreeModelSpliceEvent<T | null, TFilterData>>;
+	readonly onDidChangeVisibility: Event<readonly ITreeVisibilityChange<T | null, TFilterData>[]>;
 	readonly onDidSpliceRenderedNodes: Event<ITreeListSpliceData<T | null, TFilterData>>;
 	readonly onDidChangeCollapseState: Event<ICollapseStateChangeEvent<T, TFilterData>>;
 	readonly onDidChangeRenderNodeCount: Event<ITreeNode<T, TFilterData>>;
@@ -47,6 +49,7 @@ export class ObjectTreeModel<T, TFilterData = void> implements IObjectTreeModel<
 	) {
 		this.model = new IndexTreeModel(user, null, options);
 		this.onDidSpliceModel = this.model.onDidSpliceModel;
+		this.onDidChangeVisibility = this.model.onDidChangeVisibility;
 		this.onDidSpliceRenderedNodes = this.model.onDidSpliceRenderedNodes;
 		this.onDidChangeCollapseState = this.model.onDidChangeCollapseState as Event<ICollapseStateChangeEvent<T, TFilterData>>;
 		this.onDidChangeRenderNodeCount = this.model.onDidChangeRenderNodeCount as Event<ITreeNode<T, TFilterData>>;
@@ -225,6 +228,10 @@ export class ObjectTreeModel<T, TFilterData = void> implements IObjectTreeModel<
 
 	has(element: T | null): boolean {
 		return this.nodes.has(element);
+	}
+
+	getNodeByIdentity(identity: string): ITreeNode<T, TFilterData> | undefined {
+		return this.nodesByIdentity.get(identity);
 	}
 
 	getListIndex(element: T | null): number {

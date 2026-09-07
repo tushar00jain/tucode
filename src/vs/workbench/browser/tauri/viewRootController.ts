@@ -8,8 +8,8 @@
  *
  *  - **every arm that touches the tree is queued**, because a key can arrive while the last one's
  *    directory read or refetch is still in flight, and the rows `Tab` cycles have to be the rows the
- *    query that preceded it left behind — but **closing the box is not**, since nothing in the queue
- *    reads or writes it and a way out has to exist whatever the queue is doing (see `closing`);
+ *    query that preceded it left behind. Enter closes after those queries finish; Escape closes
+ *    immediately so a way out exists whatever the queue is doing (see `closing`);
  *  - **`Tab` does not re-apply the query**, so the candidates stay the rows the *typed* query
  *    ranked — re-running the box's own text after a completion would narrow the list to the one row
  *    it names;
@@ -51,7 +51,7 @@ export interface IViewRoot {
 	open(): void;
 
 	/** The box's text changed — apply it as a query. */
-	apply(query: string): void;
+	apply(query: string, diagnosticEventId?: number): void;
 
 	/** `Tab` (`1`) and `Shift+Tab` (`-1`): the next ranked row, written into the last segment. */
 	complete(delta: number): void;
@@ -121,6 +121,8 @@ export abstract class ViewRootController<T, TBox extends IViewRootBox = IViewRoo
 
 	/** Whether the box had the keyboard when it closed, which is what `restoreDomFocus` is about. */
 	private hadKeyboard = false;
+	/** A reopened box is a new interaction, even while the previous directory read finishes. */
+	protected sessionVersion = 0;
 
 	/**
 	 * `createBox` is called with the controller rather than handed a finished box, because the box
@@ -151,19 +153,26 @@ export abstract class ViewRootController<T, TBox extends IViewRootBox = IViewRoo
 			return;
 		}
 
+		this.sessionVersion++;
 		this.box.open(this.opening());
 		this.relayout();
 
 		this.apply(this.box.value);
 	}
 
-	apply(query: string): void {
+	apply(query: string, diagnosticEventId?: number): void {
+		const session = this.sessionVersion;
 		this.queued(async () => {
-			// A query is what the user typed, so applying one ends whatever cycle `Tab` had started.
-			this.completed = -1;
+			if (session !== this.sessionVersion || !this.box.isOpen) { return; }
+			this.resetCompletion();
 
-			await this.applyQuery(query);
+			await this.applyQuery(query, diagnosticEventId);
 		});
+	}
+
+	/** A query is what the user typed, so applying one ends whatever cycle `Tab` had started. */
+	protected resetCompletion(): void {
+		this.completed = -1;
 	}
 
 	/**
@@ -171,7 +180,9 @@ export abstract class ViewRootController<T, TBox extends IViewRootBox = IViewRoo
 	 * the box reads what the cursor is on and `Enter` commits a row that is on screen.
 	 */
 	complete(delta: number): void {
+		const session = this.sessionVersion;
 		this.queued(async () => {
+			if (session !== this.sessionVersion || !this.box.isOpen) { return; }
 			const rows = this.rows;
 			const completion = completeQuery(this.box.value, rows, row => this.name(row), this.completed, delta);
 			if (!completion) {
@@ -186,22 +197,35 @@ export abstract class ViewRootController<T, TBox extends IViewRootBox = IViewRoo
 
 	/** `Enter`: take the row the ranking put the cursor on. */
 	commit(): void {
-		this.closing(() => this.commitRoot());
+		const session = this.sessionVersion;
+		// A rapid Enter must consume the query queued immediately before it. Escape still
+		// closes immediately, but closing here would make pending applyQuery arms skip the
+		// final characters and commit a stale root or focused row.
+		this.queued(async () => {
+			if (session !== this.sessionVersion || !this.box.isOpen) { return; }
+			this.hadKeyboard = this.box.close();
+			await this.commitRoot();
+		});
 	}
 
 	/** `Escape`, or the box losing the keyboard: the root it opened on comes back. */
 	cancel(): void {
-		this.closing(() => this.cancelRoot());
+		if (!this.box.isOpen) { return; }
+		this.closing(this.captureCancel());
 	}
+
+	/** Capture restoration before another open can replace the pane's saved root or focus. */
+	protected captureCancel(): () => Promise<void> { return () => this.cancelRoot(); }
 
 	//#endregion
 
 	/**
-	 * **The box closes in front of the queue and the tree catches up behind it.** `ViewRootBox.close`
+	 * **Escape closes in front of the queue and the tree catches up behind it.** `ViewRootBox.close`
 	 * touches nothing an arm touches — it hides the element, drops `FilteringContext` and clears the
 	 * one open box — and every arm already reads `box.isOpen` as its guard, so closing *earlier* only
 	 * makes a queued `apply` the no-op it was going to become anyway. What has to be serialised
 	 * against `apply` is the tree restore underneath the close, and that is what stays queued.
+	 * Enter instead closes inside its queued arm, after the final query has been applied.
 	 *
 	 * Behind the queue, one arm that never settled made `Escape` a no-op with the box still up: no key
 	 * could reach it, and `FilteringContext` stayed set over the whole window.
@@ -212,6 +236,7 @@ export abstract class ViewRootController<T, TBox extends IViewRootBox = IViewRoo
 		}
 
 		this.hadKeyboard = this.box.close();
+		this.sessionVersion++;
 		this.queued(restore);
 	}
 
@@ -243,7 +268,7 @@ export abstract class ViewRootController<T, TBox extends IViewRootBox = IViewRoo
 	 * that root's rows, and the tree rebuilt however this pane rebuilds. It is called with the box
 	 * shut when a rebuild was queued behind a close, so every arm of it starts by checking.
 	 */
-	protected abstract applyQuery(query: string): Promise<void>;
+	protected abstract applyQuery(query: string, diagnosticEventId?: number): Promise<void>;
 
 	/** The rows on screen, in the order they are drawn — `Tab`'s candidates. */
 	protected abstract get rows(): T[];

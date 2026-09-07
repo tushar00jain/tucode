@@ -1,15 +1,18 @@
 //! Server half of VS Code's `IChannel` seam.
 //!
-//! The frontend implements stock `IChannel` over Tauri in
+//! The frontend implements stock `IChannel` in
 //! `src/vs/base/parts/ipc/tauri/`: `call()` becomes [`channel_call`], `listen()`
-//! becomes [`channel_listen`] plus a Tauri event stream. This module is the mirror
+//! becomes [`channel_listen`] plus an event stream. This module is the mirror
 //! image — VS Code's `IServerChannel` as the [`ServerChannel`] trait, a name-keyed
 //! registry of implementations, and the subscription bookkeeping that turns
 //! `listen()` into events on `tscode:sub:{subscription_id}`.
 //!
-//! Argument names cross the boundary in camelCase: Tauri v2 renames command
-//! arguments by default, so the frontend sends `subscriptionId`, not
-//! `subscription_id`.
+//! Nothing here knows how a request arrives or how a payload leaves. [`crate::host`]
+//! is the transport, and an [`EventEmitter`] is all the registry is told about it.
+//!
+//! Argument names cross the boundary in camelCase: the wire contract was set by
+//! Tauri v2, which renames command arguments by default, so the frontend sends
+//! `subscriptionId`, not `subscription_id`.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -18,7 +21,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, State};
 
 /// The six channel names the frontend may address. Nothing else is registrable.
 pub const CHANNEL_NAMES: [&str; 6] = ["file", "watch", "search", "scm", "sl", "pty"];
@@ -170,6 +172,15 @@ impl From<serde_json::Error> for ChannelError {
 
 //#region Events
 
+/// Where an event payload leaves the process — the window's `Emitter` in tscode,
+/// the host transport's writer here.
+///
+/// One method, so the registry and the six channels stay host-agnostic: they know
+/// a name and a payload, and nothing about the wire underneath.
+pub trait EventEmitter: Send + Sync {
+    fn emit(&self, event_name: &str, payload: Value) -> Result<(), ChannelError>;
+}
+
 /// Where a channel pushes the payloads of one `listen()` subscription.
 ///
 /// Cheap to clone into a spawned task. Emitting after the subscription is
@@ -177,16 +188,16 @@ impl From<serde_json::Error> for ChannelError {
 /// deliver to a disposed frontend emitter.
 #[derive(Clone)]
 pub struct EventSink {
-    app: AppHandle,
+    emitter: Arc<dyn EventEmitter>,
     event_name: Arc<str>,
     subscription_id: Arc<str>,
     active: Arc<AtomicBool>,
 }
 
 impl EventSink {
-    fn new(app: AppHandle, subscription_id: &str, active: Arc<AtomicBool>) -> Self {
+    fn new(emitter: Arc<dyn EventEmitter>, subscription_id: &str, active: Arc<AtomicBool>) -> Self {
         Self {
-            app,
+            emitter,
             event_name: subscription_event_name(subscription_id).into(),
             subscription_id: subscription_id.into(),
             active,
@@ -199,9 +210,8 @@ impl EventSink {
         if !self.is_active() {
             return Ok(());
         }
-        self.app
-            .emit(&self.event_name, payload)
-            .map_err(|e| ChannelError::unknown(e.to_string()))
+        self.emitter
+            .emit(&self.event_name, serde_json::to_value(payload)?)
     }
 
     /// False once the subscription has been cancelled. Long-running producers
@@ -212,10 +222,6 @@ impl EventSink {
 
     pub fn subscription_id(&self) -> &str {
         &self.subscription_id
-    }
-
-    pub fn app_handle(&self) -> &AppHandle {
-        &self.app
     }
 }
 
@@ -292,11 +298,12 @@ impl SubscriptionEntry {
 pub struct ChannelRegistry {
     channels: HashMap<&'static str, Arc<dyn ServerChannel>>,
     subscriptions: Mutex<HashMap<String, SubscriptionEntry>>,
+    emitter: Arc<dyn EventEmitter>,
 }
 
 impl ChannelRegistry {
-    pub fn new() -> Self {
-        Self { channels: HashMap::new(), subscriptions: Mutex::new(HashMap::new()) }
+    pub fn new(emitter: Arc<dyn EventEmitter>) -> Self {
+        Self { channels: HashMap::new(), subscriptions: Mutex::new(HashMap::new()), emitter }
     }
 
     /// Takes `&mut self`, so registration can only happen before the registry is
@@ -328,7 +335,6 @@ impl ChannelRegistry {
 
     fn add_subscription(
         &self,
-        app: &AppHandle,
         channel_name: &str,
         event: &str,
         arg: Value,
@@ -347,7 +353,7 @@ impl ChannelRegistry {
         }
 
         let active = Arc::new(AtomicBool::new(true));
-        let sink = EventSink::new(app.clone(), subscription_id, Arc::clone(&active));
+        let sink = EventSink::new(Arc::clone(&self.emitter), subscription_id, Arc::clone(&active));
         let subscription = channel.listen(event, arg, sink)?;
         subscriptions
             .insert(subscription_id.to_owned(), SubscriptionEntry { active, subscription });
@@ -363,8 +369,8 @@ impl ChannelRegistry {
         }
     }
 
-    /// Drop every subscription. Called when the window is destroyed — the
-    /// frontend that owned them is gone, and their producers must stop.
+    /// Drop every subscription. Called when the frontend goes away — it owned
+    /// them, and their producers must stop.
     pub fn cancel_all(&self) {
         let entries = std::mem::take(&mut *self.subscriptions());
         for (_, entry) in entries {
@@ -373,47 +379,40 @@ impl ChannelRegistry {
     }
 }
 
-impl Default for ChannelRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 //#endregion
 
 //#region Commands
 
-#[tauri::command]
+/// The three entry points the transport dispatches to, one per name the frontend
+/// sends. They were `#[tauri::command]`s taking `State<'_, ChannelRegistry>`;
+/// only how the registry is reached has changed.
+///
+/// The error is already `ChannelError::to_wire`'s JSON, because that string is
+/// the whole of what the frontend gets to rehydrate from.
 pub async fn channel_call(
-    registry: State<'_, ChannelRegistry>,
-    channel: String,
-    command: String,
+    registry: &ChannelRegistry,
+    channel: &str,
+    command: &str,
     arg: Value,
 ) -> Result<Value, String> {
-    let channel = registry.channel(&channel)?;
-    channel.call(&command, arg).await.map_err(String::from)
+    let channel = registry.channel(channel)?;
+    channel.call(command, arg).await.map_err(String::from)
 }
 
-#[tauri::command]
 pub fn channel_listen(
-    app: AppHandle,
-    registry: State<'_, ChannelRegistry>,
-    channel: String,
-    event: String,
+    registry: &ChannelRegistry,
+    channel: &str,
+    event: &str,
     arg: Value,
-    subscription_id: String,
+    subscription_id: &str,
 ) -> Result<(), String> {
     registry
-        .add_subscription(&app, &channel, &event, arg, &subscription_id)
+        .add_subscription(channel, event, arg, subscription_id)
         .map_err(String::from)
 }
 
-#[tauri::command]
-pub fn channel_unlisten(
-    registry: State<'_, ChannelRegistry>,
-    subscription_id: String,
-) -> Result<(), String> {
-    registry.remove_subscription(&subscription_id);
+pub fn channel_unlisten(registry: &ChannelRegistry, subscription_id: &str) -> Result<(), String> {
+    registry.remove_subscription(subscription_id);
     Ok(())
 }
 

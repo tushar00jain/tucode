@@ -59,6 +59,20 @@ pub fn list_processes(root_pid: u32) -> Result<ProcessItem> {
         .ok_or(PtyError::NoSuchProcess(root_pid))
 }
 
+/// Reports a failed tree walk from a poller.
+///
+/// A root that is simply gone is the normal end of a poll — the shell exited between the tick and
+/// the refresh, which is what every teardown looks like — so it is `trace`, and anything else keeps
+/// `debug`. Stock logs neither: `windowsShellHelper.ts` resolves `''` and `childProcessMonitor.ts`
+/// swallows it, so this is a diagnostic of ours and it has to stay out of the way of a clean run.
+pub fn log_tree_failure(poller: &str, error: &PtyError) {
+    if matches!(error, PtyError::NoSuchProcess(_)) {
+        log::trace!("{poller}: Fetching process tree failed: {error}");
+    } else {
+        log::debug!("{poller}: Fetching process tree failed: {error}");
+    }
+}
+
 /// The name of one process, which is `node-pty`'s `IPty.process` — on Unix, the
 /// pty's foreground process group leader; on Windows, the pty's own child.
 ///

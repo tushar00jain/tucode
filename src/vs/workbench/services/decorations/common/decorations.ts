@@ -23,6 +23,10 @@ export interface IDecorationData {
 }
 
 export interface IDecoration extends IDisposable {
+	/** Literal badge chosen by the existing decoration rules; icon/bubble badges have no text. */
+	readonly badgeText?: string;
+	/** Resolved label color for native consumers of the same decoration precedence. */
+	readonly color?: import('../../../../base/common/color.js').Color;
 	readonly tooltip: string;
 	readonly strikethrough: boolean;
 	readonly labelClassName: string;

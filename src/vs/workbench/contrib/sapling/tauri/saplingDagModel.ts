@@ -128,8 +128,29 @@ export function subsetForRendering(commits: readonly CommitInfo[]): CommitInfo[]
 }
 
 /**
- * Port of `Dag.renderToRowsImpl` and `Dag.dagWalkerForRendering` in `addons/isl/src/dag/dag.ts`,
- * for a set that is always the whole smartlog rather than a subset of a client-side dag.
+ * One step of the walk: the arguments `Renderer.nextRow` takes for a row, and the commit the row
+ * is for. `NextRowOptions` is not exported by `render.ts` — nor by ISL's own copy of it — so the
+ * option bag is read off the method rather than restated here.
+ */
+export interface ISaplingWalkStep {
+	readonly info: CommitInfo;
+	readonly hash: Hash;
+	readonly parents: Ancestor[];
+	readonly options?: Parameters<Renderer['nextRow']>[2];
+}
+
+/**
+ * The column the walk reserves before it starts: the first public commit's, which is what indents
+ * the draft commits beside it. It is separate from `walkForRendering` because reserving is a
+ * separate call on each renderer — `Renderer.reserve` and `TextRenderer.reserve`.
+ */
+export function reservedHash(commits: readonly CommitInfo[]): Hash | undefined {
+	return commits.find(info => info.phase === 'public')?.hash;
+}
+
+/**
+ * Port of `Dag.dagWalkerForRendering` in `addons/isl/src/dag/dag.ts`, for a set that is always the
+ * whole smartlog rather than a subset of a client-side dag.
  *
  * The two arms ISL's walker has that this one does not need follow from that: a parent outside
  * the set is not "elsewhere in the dag" here, it is absent, so it is anonymous ("~") rather than
@@ -138,26 +159,26 @@ export function subsetForRendering(commits: readonly CommitInfo[]): CommitInfo[]
  *
  * `commits` must arrive descendants first, which is the order `sl` renders a smartlog in: the
  * renderer assigns each row's column from the columns its children already claimed.
+ *
+ * **It is the walk and not the render**, so that one set of edges drives both renderers over
+ * `render.ts`: `renderToRows` below for the graphical row, and `saplingTextRows.ts` for
+ * `TextRenderer`'s box-drawing one. A second walk would be a second answer to which parent is
+ * direct, indirect or anonymous.
  */
-export function renderToRows(commits: readonly CommitInfo[]): ISaplingRow[] {
-	const renderer = new Renderer();
+export function* walkForRendering(commits: readonly CommitInfo[]): Iterable<ISaplingWalkStep> {
 	const renderSet = new Set<Hash>(commits.map(info => info.hash));
-	const rows: ISaplingRow[] = [];
-
-	// Reserve a column for the public branch, which is what indents the draft commits beside it.
-	for (const info of commits) {
-		if (info.phase === 'public') {
-			renderer.reserve(info.hash);
-			break;
-		}
-	}
 
 	for (const info of commits) {
 		// The working copy is a child of ".", so it is rendered ahead of it. `forceLastColumn` is
 		// what `renderToRowsImpl` passes for it, and is what keeps the label out of the columns
 		// the commits below are using.
 		if (info.isDot) {
-			rows.push({ info: youAreHereCommit(info.hash), row: renderer.nextRow(WDIR_NODE, [new Ancestor({ type: AncestorType.Parent, hash: info.hash })], { forceLastColumn: true }) });
+			yield {
+				info: youAreHereCommit(info.hash),
+				hash: WDIR_NODE,
+				parents: [new Ancestor({ type: AncestorType.Parent, hash: info.hash })],
+				options: { forceLastColumn: true }
+			};
 		}
 
 		// directParents: solid edges
@@ -187,8 +208,21 @@ export function renderToRows(commits: readonly CommitInfo[]): ISaplingRow[] {
 			typedParents.push(new Ancestor({ type: AncestorType.Anonymous, hash: undefined }));
 		}
 
-		rows.push({ info, row: renderer.nextRow(info.hash, typedParents) });
+		yield { info, hash: info.hash, parents: typedParents };
+	}
+}
+
+/**
+ * Port of `Dag.renderToRowsImpl` in `addons/isl/src/dag/dag.ts`: `walkForRendering`'s steps put
+ * through `Renderer`, which is the swimlane geometry the graphical row renderer draws as tiles.
+ */
+export function renderToRows(commits: readonly CommitInfo[]): ISaplingRow[] {
+	const renderer = new Renderer();
+	const reserved = reservedHash(commits);
+	if (reserved !== undefined) {
+		renderer.reserve(reserved);
 	}
 
-	return rows;
+	return [...walkForRendering(commits)]
+		.map(({ info, hash, parents, options }) => ({ info, row: renderer.nextRow(hash, parents, options) }));
 }

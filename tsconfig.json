@@ -4,14 +4,15 @@
     "moduleResolution": "bundler",
     "moduleDetection": "legacy",
     "target": "ES2022",
-    "lib": [
-      "ES2024",
-      "ESNext.Disposable",
-      "DOM",
-      "DOM.Iterable",
-      "WebWorker.ImportScripts"
-    ],
-    "types": ["vite/client", "trusted-types", "@webgpu/types", "wicg-file-system-access"],
+    // The vendored tree is browser code: it names `HTMLElement`, `NodeList` and
+    // `importScripts`, so the three lib entries `vendor` carried stay. `DOM` alone arrives
+    // by accident anyway — `@xterm/xterm`'s typings `/// <reference lib="dom" />` — and
+    // that accident brought DOM in without `DOM.Iterable`, which is why a `for..of` over a
+    // `NodeList` used to be the single largest class of error here.
+    "lib": ["ES2024", "ESNext.Disposable", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
+    // `vendor` listed `vite/client` here; this fork has no Vite. `node` replaces it,
+    // because the boot and everything under `**/tauri/**` runs on Node.
+    "types": ["node", "trusted-types", "@webgpu/types", "wicg-file-system-access"],
 
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
@@ -34,8 +35,26 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  // The typecheck covers exactly what Vite bundles: the import closure of the boot file,
-  // plus the ambient declarations tsc picks up by inclusion rather than by import.
-  "files": ["src/main.ts", "vite.config.ts"],
-  "include": ["src/typings", "src/**/*.d.ts"]
+  // What the program *is*, for both the typecheck and the build — `tsconfig.build.json`
+  // extends this and overrides emit options only, so there is one list rather than two that
+  // drift. The boot's import closure covers `src/tui` and everything vendored it reaches, and
+  // the two `.d.ts` globs add the ambient declarations tsc picks up by inclusion rather than by
+  // import — `src/typings` and, out in the tree, `src/vs/monaco.d.ts`, which is where the
+  // `monaco` namespace `editorBaseApi.ts` extends comes from. The three worker
+  // mains are reached through a `?worker&url` specifier, which is an asset
+  // URL and not an import, so nothing in that closure names them and each has to be an entry
+  // point of its own — exactly as it was an entry point in `vendor`'s `vite.config.ts`.
+  // `nodeWebWorkerMain.ts` is the third: it is named in a worker's `workerData` rather than
+  // imported, for the reason in its own header. The suites come last; they are the fork's
+  // code too, and `test/e2e` is `.mjs` and so covered by neither this nor the build.
+  "include": [
+    "src/typings",
+    "src/**/*.d.ts",
+    "src/main.ts",
+    "src/vs/base/node/nodeWebWorkerMain.ts",
+    "src/vs/editor/common/services/editorWebWorkerMain.ts",
+    "src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateTokenizationWorker.workerMain.ts",
+    "test/host/**/*.ts",
+    "test/unit/**/*.ts"
+  ]
 }

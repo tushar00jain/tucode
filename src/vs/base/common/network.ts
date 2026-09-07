@@ -279,6 +279,12 @@ export const VSCODE_AUTHORITY = 'vscode-app';
 class FileAccessImpl {
 
 	private static readonly FALLBACK_AUTHORITY = VSCODE_AUTHORITY;
+	private browserUriMapper: ((uri: URI) => URI | undefined) | undefined;
+
+	/** Let an embedded frontend serve its bundled resources through its own asset handler. */
+	setBrowserUriMapper(mapper: ((uri: URI) => URI | undefined) | undefined): void {
+		this.browserUriMapper = mapper;
+	}
 
 	/**
 	 * Returns a URI to use in contexts where the browser is responsible
@@ -298,6 +304,10 @@ class FileAccessImpl {
 	 * **Note:** use `dom.ts#asCSSUrl` whenever the URL is to be used in CSS context.
 	 */
 	uriToBrowserUri(uri: URI): URI {
+		const mapped = this.browserUriMapper?.(uri);
+		if (mapped) {
+			return mapped;
+		}
 		// Handle remote URIs via `RemoteAuthorities`
 		if (uri.scheme === Schemas.vscodeRemote) {
 			return RemoteAuthorities.rewrite(uri);

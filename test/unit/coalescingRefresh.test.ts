@@ -6,30 +6,40 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { CoalescingRefresh } from '../../src/vs/workbench/contrib/scm/tauri/coalescingRefresh.js';
+import { CoalescingRefresh, ICoalescingRefreshScheduler } from '../../src/vs/workbench/contrib/scm/tauri/coalescingRefresh.js';
 
 /**
- * The two promises `CoalescingRefresh` makes: one poll at a time, and never a missed trigger —
- * the second of which the batching window is part of, and where it was once broken.
- *
- * Real timers, and a window short enough that a test is quick but long enough that scheduler
- * jitter cannot reorder the assertions: every bound below is a multiple of `WINDOW`, never a
- * count of milliseconds picked to fit one machine.
+ * The two promises `CoalescingRefresh` makes: one poll at a time, and never a missed trigger. A
+ * manual scheduler closes exact batching windows; elapsed wall time is not part of either promise.
  */
 
-const WINDOW = 50;
-
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+class ManualScheduler implements ICoalescingRefreshScheduler {
+	private pending: { active: boolean; callback: () => void | Promise<void> } | undefined;
+	schedule(callback: () => void | Promise<void>): { dispose(): void } {
+		const task = { active: true, callback };
+		this.pending = task;
+		return { dispose: () => { task.active = false; if (this.pending === task) this.pending = undefined; } };
+	}
+	get scheduled(): boolean { return this.pending?.active === true; }
+	run(): false | void | Promise<void> {
+		const task = this.pending;
+		this.pending = undefined;
+		if (!task?.active) return false;
+		task.active = false;
+		return task.callback();
+	}
+}
 
 /** A body that records its calls and answers "not stale", which is the ordinary case. */
 function counting(stale: () => boolean = () => false) {
 	const calls = { count: 0 };
+	const scheduler = new ManualScheduler();
 	const refresher = new CoalescingRefresh(async () => {
 		calls.count++;
 		return stale();
-	}, WINDOW);
+	}, 500, scheduler);
 
-	return { calls, refresher };
+	return { calls, refresher, scheduler };
 }
 
 describe('CoalescingRefresh', () => {
@@ -47,14 +57,16 @@ describe('CoalescingRefresh', () => {
 	it('folds a refresh that arrives during one into a single extra pass', async () => {
 		let calls = 0;
 		let release = () => { };
+		let secondStarted = () => { };
+		const secondPass = new Promise<void>(resolve => { secondStarted = resolve; });
 		const refresher = new CoalescingRefresh(async () => {
 			calls++;
+			if (calls === 2) secondStarted();
 			await new Promise<void>(resolve => { release = resolve; });
 			return false;
 		});
 
 		const first = refresher.refresh();
-		await delay(WINDOW / 5);
 		assert.equal(calls, 1, 'the first pass is in flight');
 
 		// Three triggers during that pass, which is one extra pass and not three.
@@ -62,7 +74,7 @@ describe('CoalescingRefresh', () => {
 		assert.equal(calls, 1, 'a trigger during a pass never starts a second one');
 
 		release();
-		await delay(WINDOW / 5);
+		await secondPass;
 		assert.equal(calls, 2, 'the burst costs exactly one more pass');
 
 		release();
@@ -85,14 +97,14 @@ describe('CoalescingRefresh', () => {
 	});
 
 	it('batches a burst of scheduled triggers into one pass', async () => {
-		const { calls, refresher } = counting();
+		const { calls, refresher, scheduler } = counting();
 
 		for (let i = 0; i < 5; i++) {
 			refresher.schedule();
 		}
 
 		assert.equal(calls.count, 0, 'the window has not closed yet');
-		await delay(WINDOW * 3);
+		assert.notEqual(scheduler.run(), false);
 		assert.equal(calls.count, 1, 'one pass for the burst');
 		refresher.dispose();
 	});
@@ -100,40 +112,52 @@ describe('CoalescingRefresh', () => {
 	/**
 	 * The regression. A restarting window — `RunOnceScheduler.schedule`'s own behaviour — defers
 	 * the poll for as long as the triggers keep coming, which for a recursive watch on a working
-	 * tree something writes into is forever. Triggers arrive here at a fifth of the window for
-	 * six windows' worth of time, and the body has to have run.
+	 * tree something writes into is forever. Triggers arrive here at a fifth of the window, and
+	 * the body has to keep running.
+	 *
+	 * Exact manual windows prove that triggers inside a window do not restart it. A restarting
+	 * scheduler would leave more than one pending task or make the original task inert.
 	 */
 	it('still refreshes under a trigger stream faster than the window', async () => {
-		const { calls, refresher } = counting();
+		const { calls, refresher, scheduler } = counting();
+		const PASSES = 3;
+		for (let pass = 0; pass < PASSES; pass++) {
+			for (let trigger = 0; trigger < 8; trigger++) refresher.schedule();
+			assert.equal(scheduler.scheduled, true);
+			const completion = scheduler.run();
+			assert.notEqual(completion, false);
+			await completion;
+			assert.equal(calls.count, pass + 1);
+		}
 
-		const stream = setInterval(() => refresher.schedule(), WINDOW / 5);
-		await delay(WINDOW * 6);
-		clearInterval(stream);
-
-		assert.ok(calls.count >= 3, `a continuous stream starved the poll: ${calls.count} passes`);
+		assert.equal(calls.count, PASSES);
 		refresher.dispose();
 	});
 
 	it('opens a new window for the next trigger after one closes', async () => {
-		const { calls, refresher } = counting();
+		const { calls, refresher, scheduler } = counting();
 
 		refresher.schedule();
-		await delay(WINDOW * 3);
+		const first = scheduler.run();
+		assert.notEqual(first, false);
+		await first;
 		assert.equal(calls.count, 1);
 
 		refresher.schedule();
-		await delay(WINDOW * 3);
+		const second = scheduler.run();
+		assert.notEqual(second, false);
+		await second;
 		assert.equal(calls.count, 2);
 		refresher.dispose();
 	});
 
 	it('drops a window that has not closed when disposed', async () => {
-		const { calls, refresher } = counting();
+		const { calls, refresher, scheduler } = counting();
 
 		refresher.schedule();
 		refresher.dispose();
 
-		await delay(WINDOW * 3);
+		assert.equal(scheduler.run(), false);
 		assert.equal(calls.count, 0);
 	});
 });

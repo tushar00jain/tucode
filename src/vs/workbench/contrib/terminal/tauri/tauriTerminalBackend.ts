@@ -6,7 +6,6 @@
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { IProcessEnvironment, isMacintosh, isWindows, OperatingSystem } from '../../../../base/common/platform.js';
-import { hasKey, isObject, isString } from '../../../../base/common/types.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -33,12 +32,14 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { PtyService } from '../../../../platform/terminal/tauri/ptyService.js';
 import { PTY_CHANNEL_NAME } from '../../../../platform/terminal/tauri/tauriTerminalProcess.js';
+import { FILE_CHANNEL_NAME } from '../../../services/files/tauri/tauriFileSystemProvider.js';
 import { mark, PerformanceMark } from '../../../../base/common/performance.js';
 import { DeferredPromise } from '../../../../base/common/async.js';
 import { IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
 import { memoize } from '../../../../base/common/decorators.js';
 import { StopWatch } from '../../../../base/common/stopwatch.js';
 import { shouldUseEnvironmentVariableCollection } from '../../../../platform/terminal/common/terminalEnvironment.js';
+import { resolveTerminalProfilePaths } from '../common/terminalProfilePaths.js';
 
 export class TauriTerminalBackendContribution implements IWorkbenchContribution {
 
@@ -138,6 +139,7 @@ class TauriTerminalBackend extends BaseTerminalBackend implements ITerminalBacke
 			},
 			0,
 			channel,
+			mainProcessService.getChannel(FILE_CHANNEL_NAME),
 			fileService
 		));
 		this._proxy = proxy;
@@ -270,37 +272,11 @@ class TauriTerminalBackend extends BaseTerminalBackend implements ITerminalBacke
 	}
 
 	async getProfiles(profiles: unknown, defaultProfile: unknown, includeDetectedProfiles?: boolean) {
-		return this._tauriPtyHostController.getProfiles(this._workspaceContextService.getWorkspace().id, await this._resolveProfilePaths(profiles), defaultProfile, includeDetectedProfiles) || [];
-	}
-
-	/**
-	 * Stock's pty host resolves a configured profile's path by asking the window for it —
-	 * `onPtyHostRequestResolveVariables`, answered in `BaseTerminalBackend` from the same
-	 * service and the same workspace root used here. Detection takes the paths it is given,
-	 * so the resolution happens on the way out instead. Without it the default value of
-	 * `terminal.integrated.profiles.windows` never produces a Command Prompt, because its
-	 * `${env:windir}` is not a path.
-	 *
-	 * Only `path` carries variables: a `source` profile's paths are discovery's own, and a
-	 * profile's other fields are not resolved upstream either.
-	 */
-	private async _resolveProfilePaths(profiles: unknown): Promise<unknown> {
-		if (!isObject(profiles)) {
-			return profiles;
-		}
 		const activeWorkspaceRootUri = this._historyService.getLastActiveWorkspaceRoot(Schemas.file);
 		const workspaceFolder = activeWorkspaceRootUri ? this._workspaceContextService.getWorkspaceFolder(activeWorkspaceRootUri) ?? undefined : undefined;
-		const resolve = async (path: string | ITerminalUnsafePath): Promise<string | ITerminalUnsafePath> => isString(path)
-			? this._configurationResolverService.resolveAsync(workspaceFolder, path)
-			: { ...path, path: await this._configurationResolverService.resolveAsync(workspaceFolder, path.path) };
-		const resolved = await Promise.all(Object.entries(profiles as { [name: string]: ITerminalProfileObject })
-			.map(async ([name, profile]): Promise<[string, ITerminalProfileObject]> => {
-				if (!profile || !hasKey(profile, { path: true })) {
-					return [name, profile];
-				}
-				return [name, { ...profile, path: Array.isArray(profile.path) ? await Promise.all(profile.path.map(resolve)) : await resolve(profile.path) }];
-			}));
-		return Object.fromEntries(resolved);
+		return this._tauriPtyHostController.getProfiles(this._workspaceContextService.getWorkspace().id,
+			await resolveTerminalProfilePaths(profiles, workspaceFolder, this._configurationResolverService),
+			defaultProfile, includeDetectedProfiles) || [];
 	}
 
 	@memoize

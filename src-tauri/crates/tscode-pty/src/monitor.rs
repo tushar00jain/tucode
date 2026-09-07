@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::decorators::{sleep_until, Debounce, Throttle};
-use crate::ps::{list_processes, ProcessItem};
+use crate::ps::{list_processes, log_tree_failure, ProcessItem};
 use crate::types::node_stem;
 
 /// The amount of time to throttle checks when the process receives output.
@@ -134,7 +134,7 @@ async fn refresh(pid: u32, has_child_processes: &AtomicBool, on_change: &ChangeH
             }
         }
         Ok(Err(error)) => {
-            log::debug!("ChildProcessMonitor: Fetching process tree failed: {error}");
+            log_tree_failure("ChildProcessMonitor", &error);
         }
         Err(error) => log::debug!("ChildProcessMonitor: Fetching process tree panicked: {error}"),
     }

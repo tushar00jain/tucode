@@ -26,9 +26,22 @@ import { isString, SingleOrMany } from '../../../base/common/types.js';
  * resource directory instead, which is the same directory `resources/extensions` is read from.
  */
 let appResourceRoot = '';
+let shellIntegrationWritableRoot = '';
 
 export function setAppResourceRoot(root: string): void {
 	appResourceRoot = root;
+}
+
+/**
+ * A backend-registered, per-user directory where shell startup files may be materialized.
+ * The frontend file service deliberately cannot write arbitrary system temporary directories.
+ */
+export function setShellIntegrationWritableRoot(root: string): void {
+	shellIntegrationWritableRoot = root;
+}
+
+export function shellIntegrationScriptPath(script: string, root: string = appResourceRoot): string {
+	return path.join(root, 'out/src/vs/workbench/contrib/terminal/common/scripts', script);
 }
 
 export interface IShellIntegrationConfigInjection {
@@ -69,6 +82,7 @@ export async function getShellIntegrationInjection(
 	productService: IProductService,
 	fileService: IFileService,
 	channel: IChannel,
+	fileChannel: IChannel,
 	skipStickyBit: boolean = false
 ): Promise<IShellIntegrationConfigInjection | IShellIntegrationInjectionFailure> {
 	// The global setting is disabled
@@ -228,10 +242,12 @@ export async function getShellIntegrationInjection(
 			const backendEnv = await channel.call<IProcessEnvironment>('getEnvironment');
 			const username = backendEnv['USER'] ?? backendEnv['USERNAME'] ?? 'unknown';
 
-			// Resolve the actual tmp directory so we can set the sticky bit
-			const tmpDir = backendEnv['TMPDIR'] ?? '/tmp';
-			const realTmpDir = (await fileService.realpath(URI.file(tmpDir)))?.fsPath ?? tmpDir;
-			const zdotdir = path.join(realTmpDir, `${username}-${productService.applicationName}-zsh`);
+			// The Tauri file service is intentionally restricted to backend-registered roots. Keep
+			// generated startup files under the registered per-user data root instead of attempting
+			// to write to the unregistered system temporary directory.
+			const zdotdir = shellIntegrationWritableRoot
+				? path.join(shellIntegrationWritableRoot, 'terminal-shell-integration', `${username}-${productService.applicationName}-zsh`)
+				: path.join((await fileService.realpath(URI.file(backendEnv['TMPDIR'] ?? '/tmp')))?.fsPath ?? backendEnv['TMPDIR'] ?? '/tmp', `${username}-${productService.applicationName}-zsh`);
 
 			// 0o1700 — sticky bit plus owner-only — is what stops another user of a shared tmp
 			// directory replacing the scripts the shell is about to source. `IFileService` has no
@@ -239,7 +255,7 @@ export async function getShellIntegrationInjection(
 			if (!skipStickyBit) {
 				try {
 					await fileService.createFolder(URI.file(zdotdir));
-					await channel.call('chmod', [URI.file(zdotdir), 0o1700]);
+					await fileChannel.call('chmod', [URI.file(zdotdir), 0o1700]);
 				} catch (err) {
 					logService.error(`Failed to create zdotdir at ${zdotdir}: ${err}`);
 					return { type: 'failure', reason: ShellIntegrationInjectionFailureReason.FailedToCreateTmpDir };
@@ -250,19 +266,19 @@ export async function getShellIntegrationInjection(
 			envMixin['USER_ZDOTDIR'] = userZdotdir;
 			const filesToCopy: IShellIntegrationConfigInjection['filesToCopy'] = [];
 			filesToCopy.push({
-				source: path.join(appRoot, 'out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-rc.zsh'),
+				source: shellIntegrationScriptPath('shellIntegration-rc.zsh', appRoot),
 				dest: path.join(zdotdir, '.zshrc')
 			});
 			filesToCopy.push({
-				source: path.join(appRoot, 'out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-profile.zsh'),
+				source: shellIntegrationScriptPath('shellIntegration-profile.zsh', appRoot),
 				dest: path.join(zdotdir, '.zprofile')
 			});
 			filesToCopy.push({
-				source: path.join(appRoot, 'out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-env.zsh'),
+				source: shellIntegrationScriptPath('shellIntegration-env.zsh', appRoot),
 				dest: path.join(zdotdir, '.zshenv')
 			});
 			filesToCopy.push({
-				source: path.join(appRoot, 'out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-login.zsh'),
+				source: shellIntegrationScriptPath('shellIntegration-login.zsh', appRoot),
 				dest: path.join(zdotdir, '.zlogin')
 			});
 			return { type, newArgs, envMixin, filesToCopy };
@@ -322,15 +338,15 @@ enum ShellIntegrationExecutable {
 
 const shellIntegrationArgs: Map<ShellIntegrationExecutable, string[]> = new Map();
 // The try catch swallows execution policy errors in the case of the archive distributable
-shellIntegrationArgs.set(ShellIntegrationExecutable.WindowsPwsh, ['-noexit', '-command', 'try { . \"{0}\\out\\vs\\workbench\\contrib\\terminal\\common\\scripts\\shellIntegration.ps1\" } catch {}{1}']);
-shellIntegrationArgs.set(ShellIntegrationExecutable.WindowsPwshLogin, ['-l', '-noexit', '-command', 'try { . \"{0}\\out\\vs\\workbench\\contrib\\terminal\\common\\scripts\\shellIntegration.ps1\" } catch {}{1}']);
-shellIntegrationArgs.set(ShellIntegrationExecutable.Pwsh, ['-noexit', '-command', '. "{0}/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1"{1}']);
-shellIntegrationArgs.set(ShellIntegrationExecutable.PwshLogin, ['-l', '-noexit', '-command', '. "{0}/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1"']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.WindowsPwsh, ['-noexit', '-command', 'try { . \"{0}\\out\\src\\vs\\workbench\\contrib\\terminal\\common\\scripts\\shellIntegration.ps1\" } catch {}{1}']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.WindowsPwshLogin, ['-l', '-noexit', '-command', 'try { . \"{0}\\out\\src\\vs\\workbench\\contrib\\terminal\\common\\scripts\\shellIntegration.ps1\" } catch {}{1}']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.Pwsh, ['-noexit', '-command', '. "{0}/out/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1"{1}']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.PwshLogin, ['-l', '-noexit', '-command', '. "{0}/out/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1"']);
 shellIntegrationArgs.set(ShellIntegrationExecutable.Zsh, ['-i']);
 shellIntegrationArgs.set(ShellIntegrationExecutable.ZshLogin, ['-il']);
-shellIntegrationArgs.set(ShellIntegrationExecutable.Bash, ['--init-file', '{0}/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh']);
-shellIntegrationArgs.set(ShellIntegrationExecutable.Fish, ['--init-command', 'source "{0}/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration.fish"']);
-shellIntegrationArgs.set(ShellIntegrationExecutable.FishLogin, ['-l', '--init-command', 'source "{0}/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration.fish"']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.Bash, ['--init-file', '{0}/out/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.Fish, ['--init-command', 'source "{0}/out/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.fish"']);
+shellIntegrationArgs.set(ShellIntegrationExecutable.FishLogin, ['-l', '--init-command', 'source "{0}/out/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.fish"']);
 const pwshLoginArgs = ['-login', '-l'];
 const shLoginArgs = ['--login', '-l'];
 const shInteractiveArgs = ['-i', '--interactive'];

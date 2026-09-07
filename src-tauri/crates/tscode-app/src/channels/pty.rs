@@ -342,10 +342,10 @@ impl PtyChannel {
         }
     }
 
-    /// Shut every terminal down. Called when the window is destroyed — the
-    /// frontend that owned them is gone.
-    pub fn shutdown_all(&self) {
-        self.state.registry.shutdown_all();
+    /// Shut every terminal down and wait for its child to be reaped. Called when
+    /// the window is destroyed — the frontend that owned them is gone.
+    pub async fn shutdown_all(&self) {
+        self.state.registry.shutdown_all().await;
     }
 
     fn process(&self, pty_id: u32) -> Result<Arc<TerminalProcess>, ChannelError> {

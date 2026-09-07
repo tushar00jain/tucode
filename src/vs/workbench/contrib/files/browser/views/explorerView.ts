@@ -27,7 +27,7 @@ import { DelayedDragHandler } from '../../../../../base/browser/dnd.js';
 import { IEditorService, SIDE_GROUP, ACTIVE_GROUP } from '../../../../services/editor/common/editorService.js';
 import { IViewPaneOptions, ViewPane } from '../../../../browser/parts/views/viewPane.js';
 import { ILabelService } from '../../../../../platform/label/common/label.js';
-import { ExplorerDelegate, ExplorerDataSource, FilesRenderer, ICompressedNavigationController, FilesFilter, FileSorter, FileDragAndDrop, ExplorerCompressionDelegate, isCompressedFolderName, ExplorerFindProvider } from './explorerViewer.js';
+import { ExplorerDelegate, ExplorerDataSource, FilesRenderer, ICompressedNavigationController, FilesFilter, FileSorter, ExplorerCompressionDelegate, isCompressedFolderName, ExplorerFindProvider } from './explorerViewer.js';
 import { IThemeService, IFileIconTheme } from '../../../../../platform/theme/common/themeService.js';
 import { IWorkbenchThemeService } from '../../../../services/themes/common/workbenchThemeService.js';
 import { ITreeContextMenuEvent, TreeVisibility } from '../../../../../base/browser/ui/tree/tree.js';
@@ -187,6 +187,12 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 	private _autoReveal: boolean | 'force' | 'focusNoScroll' = false;
 	private decorationsProvider: ExplorerDecorationsProvider | undefined;
 	private readonly delegate: IExplorerViewContainerDelegate | undefined;
+
+	/** The exact widget this browser view renders, for alternate painters hosted by the same view. */
+	get treeWidget(): WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore> {
+		return this.tree;
+	}
+	get rootController(): ExplorerViewRoot { return this.viewRoot; }
 
 	override get singleViewPaneContainerTitle(): string {
 		return this.name;
@@ -489,7 +495,8 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 			multipleSelectionSupport: true,
 			filter: this.viewRoot.filter,
 			sorter: this.viewRoot.filter,
-			dnd: this.instantiationService.createInstance(FileDragAndDrop, (item) => this.isItemCollapsed(item)),
+			// Stock FindFilter overwrites the custom ranking's FuzzyScore when its pattern is empty.
+			findWidgetEnabled: false,
 			collapseByDefault: (e) => {
 				if (e instanceof ExplorerItem) {
 					if (e.hasNests && getFileNestingSettings(e).expand) {
@@ -768,7 +775,7 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		return DOM.getLargestChildWidth(parentNode, childNodes);
 	}
 
-	async setTreeInput(): Promise<void> {
+	async setTreeInput(restoreState?: IAsyncDataTreeViewState): Promise<void> {
 		if (!this.isBodyVisible()) {
 			return Promise.resolve(undefined);
 		}
@@ -788,6 +795,7 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 			// Display roots only when multi folder workspace
 			input = roots;
 		}
+
 		input = this.viewRoot.rootInput(input);
 
 		let viewState: IAsyncDataTreeViewState | undefined;
@@ -801,9 +809,10 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		}
 
 		const previousInput = this.tree.getInput();
+		viewState = restoreState ?? viewState;
 		const promise = this.setTreeInputPromise = this.tree.setInput(input, viewState).then(async () => {
 			if (Array.isArray(input)) {
-				if (!viewState || previousInput instanceof ExplorerItem) {
+				if (!viewState || (!restoreState && previousInput instanceof ExplorerItem)) {
 					// There is no view state for this workspace (we transitioned from a folder workspace?), expand up to five roots.
 					// If there are many roots in a workspace, expanding them all would can cause performance issues #176226
 					for (let i = 0; i < Math.min(input.length, 5); i++) {

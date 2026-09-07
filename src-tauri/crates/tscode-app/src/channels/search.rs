@@ -78,7 +78,7 @@ impl SearchChannel {
 
         // `listen` runs under the registry's subscription lock, so the search
         // starts on the runtime rather than here.
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             let complete = run(query, roots, token, on_progress).await;
             emit(&sink, &completion_item(complete));
         });

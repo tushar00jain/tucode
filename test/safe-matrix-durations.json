@@ -1,0 +1,16 @@
+{
+  "baselineSource": "Successful local non-foreground safe-matrix run on 2026-08-21; refresh only from successful complete runs.",
+  "matrixBaselineMs": 70000,
+  "matrixBudgetMs": 600000,
+  "steps": {
+    "typecheck": { "baselineMs": 6932, "budgetMs": 30000 },
+    "build": { "baselineMs": 287, "budgetMs": 30000 },
+    "unit": { "baselineMs": 1372, "budgetMs": 15000, "slowestTestBudgetMs": 5000 },
+    "host": { "baselineMs": 1099, "budgetMs": 20000, "slowestTestBudgetMs": 10000 },
+    "rust": { "baselineMs": 841, "budgetMs": 120000, "slowestTestBudgetMs": 30000 },
+    "tui-e2e": { "baselineMs": 18994, "budgetMs": 180000, "slowestTestBudgetMs": 60000 },
+    "native": { "baselineMs": 2933, "budgetMs": 30000, "slowestTestBudgetMs": 15000 },
+    "coverage": { "baselineMs": 445, "budgetMs": 10000, "slowestTestBudgetMs": 5000 },
+    "diff-check": { "baselineMs": 20, "budgetMs": 5000 }
+  }
+}

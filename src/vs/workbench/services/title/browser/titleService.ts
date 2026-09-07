@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { IAuxiliaryTitlebarPart, ITitlebarPart } from '../../../browser/parts/titlebar/titlebarPart.js';
-import { WindowTitle } from '../../../browser/parts/titlebar/windowTitle.js';
+import type { IAuxiliaryTitlebarPart, ITitlebarPart } from '../../../browser/parts/titlebar/titlebarPart.js';
+import type { WindowTitle } from '../../../browser/parts/titlebar/windowTitle.js';
 import { IEditorGroupsContainer } from '../../editor/common/editorGroupsService.js';
 
 export const ITitleService = createDecorator<ITitleService>('titleService');

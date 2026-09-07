@@ -7,3 +7,7 @@
 
 # The hook's shebang only survives on Windows with LF endings.
 .githooks/* text eol=lf
+
+# Preserve pinned upstream source byte-for-byte, including its historical whitespace.
+third_party/electron-15d32f2/** -whitespace
+third_party/libuv-1.52.1/** -whitespace
