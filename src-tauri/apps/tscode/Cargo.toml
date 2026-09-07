@@ -1,0 +1,28 @@
+[package]
+name = "tscode"
+description = "tscode - a Tauri port of VS Code's explorer, search, source control and terminal views"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+license = "MIT"
+
+# The `[[bin]]` name is the executable's name. `productName` renames nothing.
+[[bin]]
+name = "tscode"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+tscode-app = { workspace = true }
+
+# Registered by `tscode_app::run`, but named here as well: Cargo hands a build script the
+# `DEP_*` metadata of *direct* dependencies only, and that metadata is how `tauri-build`
+# finds the permissions `capabilities/default.json` names.
+tauri-plugin-dialog = { workspace = true }
+tauri-plugin-log = { workspace = true }
+
+[lints]
+workspace = true

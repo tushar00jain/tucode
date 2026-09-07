@@ -1,0 +1,22 @@
+{
+	"nameShort": "tscode",
+	"nameLong": "tscode",
+	"applicationName": "tscode",
+	"dataFolderName": ".tscode",
+	"sharedDataFolderName": ".tscode-shared",
+	"serverApplicationName": "tscode-server",
+	"serverDataFolderName": ".tscode-server",
+	"urlProtocol": "tscode",
+	"darwinBundleIdentifier": "dev.tscode.app",
+	"win32AppUserModelId": "tscode",
+	"win32MutexName": "tscode",
+	"win32RegValueName": "tscode",
+	"win32NameVersion": "tscode",
+	"linuxIconName": "tscode",
+	"licenseName": "MIT",
+	"licenseFileName": "LICENSE.txt",
+	"extensionProperties": {},
+	"builtInExtensions": [],
+	"builtInExtensionsEnabledWithAutoUpdates": [],
+	"sessionsWindowAllowedExtensions": []
+}

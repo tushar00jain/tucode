@@ -1,0 +1,19 @@
+{
+  "minLines": 5,
+  "minTokens": 50,
+  "threshold": 0.18,
+  "reporters": ["console"],
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "src/vs/**",
+    "src/vendor/**",
+    "resources/**",
+    "dist/**",
+    "src-tauri/target/**",
+    "src-tauri/apps/*/gen/**",
+    "**/media/**",
+    "**/*.min.*",
+    "**/package-lock.json"
+  ]
+}

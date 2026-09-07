@@ -1,0 +1,13 @@
+[package]
+name = "tscode-proc"
+description = "Child-process spawn settings shared by the crates that shell out"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+
+[lib]
+name = "tscode_proc"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["process", "io-util"] }

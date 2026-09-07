@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.vite/
+
+# Tauri build output
+src-tauri/target/
+src-tauri/apps/*/gen/
+
+.DS_Store
+*.local
+.env
+.env.*
+
+# Machine-specific: redirects the Cargo target dir off the system drive.
+src-tauri/.cargo/config.toml
+
+# Optional provenance JSON output
+docs/provenance/tree.json

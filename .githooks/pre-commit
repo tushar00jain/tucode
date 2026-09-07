@@ -1,0 +1,12 @@
+#!/bin/sh
+# The gates that run on every commit. None of them is spelled out here: `dup`'s scan paths live in
+# package.json, `dup:tauri`'s are discovered by scripts/dup-tauri.mjs, and the checkout `keymap`
+# measures against is resolved by the script — so the hook and the manual runs cannot drift apart.
+#
+# The keymap gate is the keyboard's half: it fails on a measured divergence with no written reason,
+# and on a reason with no divergence left to explain. It **skips** where there is no sibling
+# checkout to measure against, which is the ordinary clone and must not be a blocked commit.
+set -e
+npm run --silent dup
+npm run --silent dup:tauri
+npm run --silent keymap -- --gate

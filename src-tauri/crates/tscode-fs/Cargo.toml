@@ -1,0 +1,26 @@
+[package]
+name = "tscode-fs"
+description = "Filesystem provider for tscode - stat/read/write/watch plus workspace-root path validation"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+
+[lib]
+name = "tscode_fs"
+path = "src/lib.rs"
+
+[dependencies]
+log = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+
+notify = { version = "7", features = ["macos_fsevent"] }
+globset = "0.4"
+thiserror = "2"
+# Canonicalises without Windows' `\\?\` verbatim prefix, so a stored workspace
+# root and a validated path compare as text.
+dunce = "1"
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = { workspace = true }

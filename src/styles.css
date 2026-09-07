@@ -1,0 +1,19 @@
+/*---------------------------------------------------------------------------------------------
+ *  The CSS entry point. Widget and part styles are co-located in `src/vs` and arrive
+ *  through the module graph; only the document shell around them belongs here.
+ *  Upstream's `vs/workbench/browser/media/style.css` already resets `body`.
+ *--------------------------------------------------------------------------------------------*/
+
+html {
+	height: 100%;
+	width: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+}
+
+/* Painted before the theme's colors land, so the window does not flash white. */
+body {
+	background-color: var(--vscode-editor-background, #1f1f1f);
+	color: var(--vscode-foreground, #cccccc);
+}

@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "legacy",
+    "target": "ES2022",
+    "lib": [
+      "ES2024",
+      "ESNext.Disposable",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker.ImportScripts"
+    ],
+    "types": ["vite/client", "trusted-types", "@webgpu/types", "wicg-file-system-access"],
+
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+
+    "strict": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUncheckedSideEffectImports": true,
+    "allowUnreachableCode": false,
+    "exactOptionalPropertyTypes": false,
+    "useUnknownInCatchVariables": false,
+    "forceConsistentCasingInFileNames": true,
+
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "preserveConstEnums": true,
+    "removeComments": false,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  // The typecheck covers exactly what Vite bundles: the import closure of the boot file,
+  // plus the ambient declarations tsc picks up by inclusion rather than by import.
+  "files": ["src/main.ts", "vite.config.ts"],
+  "include": ["src/typings", "src/**/*.d.ts"]
+}

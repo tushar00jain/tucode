@@ -1,0 +1,25 @@
+[package]
+name = "tscode-git"
+description = "Multi-repository git status, diff and mutation for tscode"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+
+[lib]
+name = "tscode_git"
+path = "src/lib.rs"
+
+[dependencies]
+# All reads go through `gix`, in-process. It does not honour `core.pager`,
+# `core.fsmonitor`, `core.sshCommand` or hooks, so opening a repository the user
+# cloned but never audited cannot execute anything from that repository.
+gix = "0.85"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "process", "io-util", "macros"] }
+
+tscode-fs = { path = "../tscode-fs" }
+tscode-proc = { path = "../tscode-proc" }
+
+[dev-dependencies]
+tempfile = "3"

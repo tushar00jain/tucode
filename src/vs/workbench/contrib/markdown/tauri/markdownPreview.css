@@ -1,0 +1,83 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The pane's chrome, and the three things the document beneath it cannot get from the copied
+   stylesheet beside it - `extensions/markdown-language-features/media/markdown.css`, which the
+   copy script mirrors under `src/extensions/` and confines with an `@scope` rule. Each of them
+   is a difference between the document stock renders a preview into and the document this port
+   renders it into; `docs/ARCHITECTURE.md` records them. */
+
+.markdown-preview {
+	height: 100%;
+	width: 100%;
+}
+
+.markdown-preview .markdown-preview-content {
+	/* `DomScrollableElement` scrolls by setting `scrollTop` on this element and sizes its
+	   scrollbar from this element's `clientHeight` against its `scrollHeight`, so it has to be
+	   the box that clips. Without a height it grows to fit the document, the two measurements
+	   are equal, and the scrollable reports no overflow to scroll. */
+	height: 100%;
+	box-sizing: border-box;
+	/* The copied stylesheet's own padding and line height are on `html, body`, which this
+	   document has no counterpart for inside the pane. */
+	padding: 16px 24px;
+	line-height: 1.5;
+	user-select: text;
+	outline: none;
+}
+
+/* 1. Upstream draws these borders and colours them from `.vscode-light` and `.vscode-dark` -
+      classes the webview host writes onto its own document. This is the workbench document,
+      whose theme classes are `vs`, `vs-dark`, `hc-black` and `hc-light`, so the colour comes
+      from the theme token that covers all four rather than from two hard-coded shades. */
+.markdown-preview .markdown-preview-content :is(h1, h2, hr, th, td) {
+	border-color: var(--vscode-textSeparator-foreground);
+}
+
+/* 2. A fenced code block is a `<pre>` upstream and a `<div data-code>` here: markdown-it
+      colours code with highlight.js and can emit its final markup at once, while this port
+      renders through `IMarkdownRendererService`, whose tokenizer is the editor's own and
+      therefore asynchronous - so `markdownRenderer.ts` emits a placeholder and fills it when
+      tokenization answers. Same treatment as upstream's `pre`, different element.
+
+      The attribute rather than the `code` class the same element carries: the sanitizer keeps
+      `class` only on codicon spans, so by the time the block is in the document the class is
+      gone. `data-code` is on its allowed list, and is what `markdownRenderer.ts` itself finds
+      the placeholders by. */
+.markdown-preview .markdown-preview-content div[data-code] {
+	background-color: var(--vscode-textCodeBlock-background);
+	border: 1px solid var(--vscode-widget-border);
+	border-radius: 3px;
+	padding: 16px;
+	overflow: auto;
+	font-family: var(--monaco-monospace-font);
+	white-space: pre-wrap;
+}
+
+/* 3. Upstream's preview inherits links, inline code and blockquote colours from the webview's
+      default stylesheet, which is a template literal inside `contrib/webview/browser/pre/
+      index.html` - markup, not a stylesheet, so there is nothing to copy. These are its rules
+      that a rendered document reaches. */
+.markdown-preview .markdown-preview-content code {
+	font-family: var(--monaco-monospace-font);
+	color: var(--vscode-textPreformat-foreground);
+	background-color: var(--vscode-textPreformat-background);
+	padding: 1px 3px;
+	border-radius: 4px;
+}
+
+.markdown-preview .markdown-preview-content a {
+	color: var(--vscode-textLink-foreground);
+}
+
+.markdown-preview .markdown-preview-content a:hover {
+	color: var(--vscode-textLink-activeForeground);
+}
+
+.markdown-preview .markdown-preview-content blockquote {
+	background: var(--vscode-textBlockQuote-background);
+	border-color: var(--vscode-textBlockQuote-border);
+}

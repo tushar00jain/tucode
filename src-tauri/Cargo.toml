@@ -1,0 +1,83 @@
+[workspace]
+# The Tauri app package is the workspace root's only binary; everything it is built from
+# lives in the crates below it, so the app package holds nothing but `main.rs`, the Tauri
+# config and the bundle artwork.
+members = [
+    "apps/tscode",
+    "crates/tscode-app",
+    "crates/tscode-fs",
+    "crates/tscode-search",
+    "crates/tscode-git",
+    "crates/tscode-sl",
+    "crates/tscode-pty",
+    "crates/tscode-proc",
+]
+resolver = "2"
+
+# `io::ErrorKind::IsADirectory` / `NotADirectory`, which the channel error mapping
+# matches on, were stabilized in 1.83.
+[workspace.package]
+rust-version = "1.83"
+
+# Shared versions for the app and the six crates. Members opt in with
+# `dep = { workspace = true }` so a bump happens in exactly one place. `tauri` is here
+# rather than in the app because the Tauri CLI rewrites features only in a package's
+# own `[dependencies]`: inherited, the feature set has one home.
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-util = "0.7"
+
+tauri = { version = "2", features = ["protocol-asset", "devtools"] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+
+tscode-app = { path = "crates/tscode-app" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+# `mobile` is a cfg `tauri-build` sets, so only the app package has it declared.
+# The `cfg_attr` on `tscode_app::run` would otherwise read as a typo.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(mobile)'] }
+
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+# Dependencies almost never change and are painfully slow unoptimised; our own crates stay
+# at `opt-level = 0` so they keep recompiling fast. Affects `tauri dev` only.
+[profile.dev.package."*"]
+opt-level = 2
+
+# The profile the e2e suite builds under. `[profile.release]` below is tuned for the
+# smallest artefact we can ship, which is also the slowest thing this workspace can do —
+# `lto = true` with `codegen-units = 1` is minutes of linking for a test run that never
+# looks at the artefact's size. The Tauri CLI has no `--profile`, so `npm run build:fast`
+# drives `vite build` and `cargo build` directly and does the resource copying the bundler
+# would have done. Shape taken from codex's own `dev-small`.
+[profile.dev-small]
+inherits = "dev"
+opt-level = 0
+debug = "none"
+strip = "symbols"
+
+# Smallest artefact the port can produce. `panic = "abort"` is deliberately absent: a panic
+# in a spawned channel task must not take the process down with it.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

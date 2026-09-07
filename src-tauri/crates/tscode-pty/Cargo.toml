@@ -1,0 +1,39 @@
+[package]
+name = "tscode-pty"
+description = "Terminal backend for tscode - pty spawn/IO/resize/kill, child-process monitoring, shell and profile discovery"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+
+[lib]
+name = "tscode_pty"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+# `fs` and `process` on top of the workspace set: cwd and executable
+# validation stat files, and `wsl.exe` / `lsof` are child processes.
+tokio = { workspace = true, features = ["fs", "process"] }
+
+# ConPTY on Windows, forkpty elsewhere - the same two backends `node-pty` picks
+# between, behind one API.
+portable-pty = "0.8"
+# Process trees, which upstream gets from `@vscode/windows-process-tree` on
+# Windows and from `ps` on macOS and Linux.
+sysinfo = "0.33"
+regex = "1"
+thiserror = "2"
+
+tscode-proc = { path = "../tscode-proc" }
+
+# The Windows build number gates conpty, WSL discovery and `wslpath`. Upstream
+# reads it from the registry for the same reason: `os.release()` reports
+# compatibility-shimmed values to unmanifested processes.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = "3"

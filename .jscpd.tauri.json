@@ -1,0 +1,13 @@
+{
+  "minLines": 5,
+  "minTokens": 50,
+  "threshold": 0.4,
+  "reporters": ["console"],
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "src/vendor/**",
+    "**/media/**",
+    "**/*.min.*"
+  ]
+}

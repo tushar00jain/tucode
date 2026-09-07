@@ -1,0 +1,23 @@
+[package]
+name = "tscode-sl"
+description = "Multi-repository Sapling smartlog for tscode"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+
+[lib]
+name = "tscode_sl"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# `{file_adds|json}` and its siblings are JSON, so the parse is upstream's `JSON.parse`.
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "process", "fs", "io-util", "macros"] }
+
+tscode-fs = { path = "../tscode-fs" }
+tscode-proc = { path = "../tscode-proc" }
+
+[dev-dependencies]
+tempfile = "3"

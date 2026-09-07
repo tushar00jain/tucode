@@ -1,0 +1,9 @@
+# LF everywhere, including in the working tree on Windows, so the vendored `src/vs` tree is
+# uniformly LF however a given VS Code checkout is configured. The copy script does not
+# depend on that: it normalizes CRLF to LF on both sides before deciding whether a
+# destination file is ours, and writes LF for the source extensions it copies as text. See
+# docs/UPGRADING.md, "Line endings".
+* text=auto eol=lf
+
+# The hook's shebang only survives on Windows with LF endings.
+.githooks/* text eol=lf

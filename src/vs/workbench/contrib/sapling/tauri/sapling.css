@@ -1,0 +1,208 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The pane's chrome, and the two things ISL's own stylesheets beside it cannot bring — its
+   variables and its line height. Those stylesheets are copied by
+   `scripts/copy-from-sapling.ps1` into `../media/` and confined with an `@scope` rule;
+   `docs/ARCHITECTURE.md` records why that is preferable to editing a copy. */
+
+/*
+ * ISL's variables, resolved against the workbench's.
+ *
+ * The copied rules read the design tokens the VS Code webview UI toolkit publishes, and none
+ * of them exists in the workbench document, where colours come from registered colour
+ * identifiers as `--vscode-*`. An undefined `var()` with no fallback is invalid at
+ * computed-value time, so those rules would silently lose their padding, their radius and
+ * their colours rather than fail.
+ *
+ * Sapling already solves this for its own VS Code extension:
+ * `addons/vscode/webview/vscode-styles.css` maps each toolkit variable onto the `--vscode-*`
+ * one that means the same thing, and that mapping is what is reproduced here — including its
+ * `--background` override for a view rendered in the sidebar rather than in an editor. The
+ * spacing scale is `addons/isl/src/index.css` and `addons/components/theme/tokens.css`.
+ *
+ * They are declared on the scope root rather than on `:root`, which would publish ISL's
+ * names to the whole workbench. The variables only the copied stylesheets' *inert* rules
+ * read — the file tree's, the uncommitted-changes list's — are deliberately absent: those
+ * rules match nothing here, and defining a variable for them would be inventing a value
+ * upstream never gave us.
+ */
+.sapling-smartlog {
+	--pad: 10px;
+	--halfpad: 5px;
+	--spacing-quarter: 2.5px;
+
+	--font-family: var(--vscode-font-family);
+	--background: var(--vscode-sideBar-background);
+	--foreground: var(--vscode-foreground);
+	--focus-border: var(--vscode-focusBorder);
+	--badge-background: var(--vscode-badge-background);
+	--badge-foreground: var(--vscode-badge-foreground);
+	/* `button.border` is unset in most themes, and upstream's own `var(--button-border,
+	   transparent)` cannot fall back through a variable that is itself invalid. */
+	--button-border: var(--vscode-button-border, transparent);
+	--button-primary-foreground: var(--vscode-button-foreground);
+	--button-primary-hover-background: var(--vscode-button-hoverBackground);
+	--button-secondary-foreground: var(--vscode-button-secondaryForeground);
+	--button-secondary-hover-background: var(--vscode-button-secondaryHoverBackground);
+	--button-icon-hover-background: var(--vscode-toolbar-hoverBackground);
+	--list-hover-background: var(--vscode-list-hoverBackground);
+
+	/* ISL computes `normal` for every element in a row — its badge, its title and its date are
+	   all sized by the font rather than by an inherited multiple. The workbench inherits
+	   `1.4em` from `.monaco-workbench` (`style.css`), which is what made the badge 24.2px
+	   against ISL's 20. */
+	line-height: normal;
+
+	height: 100%;
+	position: relative;
+}
+
+/*
+ * The tokens ISL keys off the *theme* rather than off the toolkit, from
+ * `addons/components/theme/themeDark.css` and `themeLight.css` — the same two files its own VS
+ * Code extension loads. Their values are literals upstream, not `--vscode-*` ones:
+ * `vscode-styles.css` maps the toolkit variables and deliberately leaves these alone, so a
+ * theme-derived mapping here would be ours rather than Sapling's, and the colours would stop
+ * matching ISL. The selector is upstream's `.vscode-dark` / `.vscode-light` spelled as the
+ * workbench spells a theme kind.
+ *
+ * Only the tokens rules this port actually renders read are here. The rest of both files belongs
+ * to ISL chrome whose rules match nothing, and defining a variable for those would be inventing a
+ * value upstream never gave us.
+ */
+.vs-dark .sapling-smartlog,
+.hc-black .sapling-smartlog {
+	--scm-modified-foreground: #e2c08d;
+	--scm-added-foreground: #73c991;
+	--scm-removed-foreground: #f3674f;
+	--selected-commit-background: rgba(255, 255, 255, 0.1);
+}
+
+.vs .sapling-smartlog,
+.hc-light .sapling-smartlog {
+	--scm-modified-foreground: #895503;
+	--scm-added-foreground: #007100;
+	--scm-removed-foreground: #ad0707;
+	--selected-commit-background: rgba(0, 0, 0, 0.1);
+}
+
+/* ISL's `.main-content-area` — the div above `.commit-tree-root`, measured on a live `sl web`.
+   Upstream scrolls it with a plain `overflow: auto`; here the scrolling belongs to the
+   `DomScrollableElement` wrapped around it, so this element must not scroll — it is the content
+   whose size that element measures. See `layoutBody` for why the wrapper exists.
+
+   `overflow: hidden` is load-bearing rather than cosmetic: `scanDomNode` measures the viewport
+   and the content on the *same* element — `clientWidth` against `scrollWidth` — so this element
+   has to be the one that clips. Sized to the pane and clipping, it reports the pane's width
+   against the widest row's, which is the difference the scrollbar is for. Left to size itself to
+   its rows, the two measurements are equal and the element concludes there is nothing to scroll.
+   The scrolling itself is `scrollLeft`/`scrollTop` written from the scroll event, which
+   `overflow: hidden` does not prevent — it only stops the *user* scrolling it directly, which is
+   the point. */
+.sapling-smartlog > .monaco-scrollable-element {
+	height: 100%;
+}
+
+.sapling-smartlog .sapling-scroll {
+	height: 100%;
+	overflow: hidden;
+}
+
+.sapling-smartlog .sapling-message {
+	padding: var(--pad) calc(2 * var(--pad));
+	opacity: 0.8;
+}
+
+/* `.commit-title` is `display: inline-flex` upstream with no overflow of its own, because
+   ISL's narrow layout wraps `.commit-details` rather than truncating anything in it. A
+   sidebar is narrower than ISL is ever asked to be, so the title truncates. */
+.sapling-smartlog .commit-title > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The commit-info view's scroller stands where `.commit-info-view-main-content` stood in
+   upstream's flex column, so it is what has to grow — and `min-height: 0` is what lets a flex
+   child scroll rather than stretch to its content. */
+.sapling-smartlog .commit-info-view > .monaco-scrollable-element {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+/* And the same override the graph's scroller needs, for the same reason: upstream scrolls this
+   element itself with `overflow-y: auto`, which sizes it to its content once the scrollable
+   element above it is what bounds the height — and a `clientHeight` equal to `scrollHeight` is
+   an element with nothing to scroll. Its `flex-grow` is inert now that its parent is the
+   scrollable element rather than upstream's flex column, so the height has to be stated. */
+.sapling-smartlog .commit-info-view-main-content {
+	/* `border-box`, and it is not cosmetic: upstream gives this element `padding: var(--pad)` and
+	   a `padding-bottom` of its toolbar's fade height, which a content-box `height: 100%` adds
+	   *on top of* the pane — a border box 40px taller than the scrollport it sits in. The
+	   scrollable element then measures a viewport 40px too large, sizes the slider against it,
+	   and lets the last rows render underneath the status bar. */
+	box-sizing: border-box;
+	height: 100%;
+	overflow: hidden;
+}
+
+/*
+ * **The changed-file list does not scroll itself here, because the pane already does.**
+ *
+ * `UncommittedChanges.css` gives `.changed-files-list` `overflow-y: scroll` under a
+ * `max-height: 500px`, and hangs a fade gradient off `::after` at `500px - 20px`. That is a list
+ * living inside ISL's commit-info *drawer*, which is not itself a scroller: the cap is what keeps
+ * a thousand-file commit from pushing everything else off the drawer, and the fade advertises the
+ * cap. This port's list is inside a pane whose whole body scrolls, and all three rules go wrong
+ * there:
+ *
+ * - A native scroller nested inside the pane's `DomScrollableElement` never gets the wheel — the
+ *   scrollable element handles it on its own node — so the list cannot be scrolled at all once
+ *   it passes the cap.
+ * - The gradient is positioned at a *fixed* 480px rather than at the end of the content, so with
+ *   a handful of files it sits in empty space below them and adds scrollable height that has
+ *   nothing in it. That is the scrollbar that runs longer than the content it is scrolling.
+ * - `position: sticky` on a file row keeps its path visible while its chunks are expanded. This
+ *   port renders no chunks, and against the pane's scrollport the rows instead pile up at the
+ *   top of the pane as it scrolls.
+ *
+ * So the list is left to grow and the pane is left to scroll it, which is the same behaviour with
+ * one scroller instead of two.
+ */
+.sapling-smartlog .commit-info-view .changed-files-list {
+	max-height: none;
+	overflow-y: visible;
+}
+
+.sapling-smartlog .commit-info-view .changed-files-list::after {
+	content: none;
+}
+
+.sapling-smartlog .commit-info-view .changed-files .changed-file {
+	position: static;
+}
+
+/* `Badge` in `isl-components` is a CSS module, so its class name is hashed at upstream's build
+   and cannot be emitted the way every other class here is. This is that component's rule, which
+   is the one place a copy is not available. */
+.sapling-smartlog .sapling-badge {
+	background-color: var(--badge-background);
+	color: var(--badge-foreground);
+	border-radius: 11px;
+	padding: 0 6px;
+	font-size: 90%;
+}
+
+/* `Subtle`, likewise a CSS module: a muted line of secondary text. */
+.sapling-smartlog .subtle {
+	opacity: 0.8;
+}
+
+/* Last, and it has to be: it overrides `display` against rules of equal specificity, so
+   cascade order is what decides it. */
+.sapling-smartlog .sapling-hidden {
+	display: none;
+}
