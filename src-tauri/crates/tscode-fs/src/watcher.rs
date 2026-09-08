@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use notify::event::{EventKind, ModifyKind, RenameMode};
-use notify::{Config, RecursiveMode, Watcher};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -39,15 +39,6 @@ pub const DEFAULT_MAX_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Called with each coalesced batch. The channel layer bridges it to an event.
 pub type ChangeHandler = Arc<dyn Fn(Vec<FileChange>) + Send + Sync + 'static>;
-
-// FSEvents does not deliver changes in every filesystem namespace macOS apps
-// can open (per-user temporary trees are a common example). Polling is the
-// reliable backend there; the debounce below still presents the same event
-// contract to callers. Other platforms retain notify's native backend.
-#[cfg(target_os = "macos")]
-type PlatformWatcher = notify::PollWatcher;
-#[cfg(not(target_os = "macos"))]
-type PlatformWatcher = notify::RecommendedWatcher;
 
 /// Port of stock's `IWatchOptions`, plus the two debounce knobs.
 #[derive(Debug, Clone)]
@@ -82,7 +73,7 @@ impl Default for WatchOptions {
 
 /// A live watch. Dropping it unregisters the OS watch and stops the debouncer.
 pub struct FileWatcher {
-    _watcher: PlatformWatcher,
+    _watcher: RecommendedWatcher,
     debouncer: tokio::task::JoinHandle<()>,
 }
 
@@ -102,13 +93,16 @@ impl FileWatcher {
         opts: WatchOptions,
         handler: ChangeHandler,
     ) -> FsResult<Self> {
-        // FSEvents reports canonical paths. In particular, a watch registered
-        // through macOS's `/var` alias receives `/private/var` resources; use
-        // the existing directory's canonical spelling so the watch and its
-        // events share one root. Workspace validation has already checked the
-        // resolved path before it reaches this boundary.
-        let root = dunce::canonicalize(resource.as_path())
-            .unwrap_or_else(|_| resource.as_path().to_path_buf());
+        let root = resource.as_path().to_path_buf();
+        // FSEvents emits resolved paths, and notify uses them to filter events.
+        // Register the same spelling (not a /var or symlink alias), but keep
+        // client resources and glob patterns in the requested namespace.
+        let watch_root = root.clone();
+        let watch_root = crate::blocking::run(move || {
+            dunce::canonicalize(&watch_root).map_err(|error| FsError::from_io(&watch_root, &error))
+        })
+        .await?;
+        let event_root = watch_root.clone();
         let excludes = build_globset(&root, &opts.excludes)?;
         let includes = build_globset(&root, &opts.includes)?;
 
@@ -116,26 +110,27 @@ impl FileWatcher {
         let correlation_id = opts.correlation_id;
         let filter = opts.filter;
 
-        let config = Config::default();
-        #[cfg(target_os = "macos")]
-        let config = config.with_poll_interval(Duration::from_millis(500));
-
-        let mut watcher = PlatformWatcher::new(
+        let mut watcher = RecommendedWatcher::new(
             move |result: Result<notify::Event, notify::Error>| {
                 let Ok(event) = result else { return };
 
-                for change in to_file_changes(&event, correlation_id) {
-                    if is_filtered(&change, filter) {
+                for mut change in to_file_changes(&event, correlation_id) {
+                    // Rebase lexically: removed paths can no longer be canonicalized.
+                    let resource = requested_path(&change.resource, &event_root, &root);
+                    if !matches_patterns(&resource, excludes.as_ref(), includes.as_ref()) {
                         continue;
                     }
-                    if !matches_patterns(&change.resource, excludes.as_ref(), includes.as_ref()) {
+                    #[cfg(target_os = "macos")]
+                    normalize_fsevent(&mut change, &event.kind);
+                    change.resource = resource;
+                    if is_filtered(&change, filter) {
                         continue;
                     }
                     // Only fails once the debouncer is gone, i.e. on shutdown.
                     let _ = tx.send(change);
                 }
             },
-            config,
+            Config::default(),
         )
         .map_err(|error| FsError::unknown(format!("watcher setup failed: {error}")))?;
 
@@ -147,15 +142,12 @@ impl FileWatcher {
 
         // Registering a recursive watch walks the tree, so it does not belong
         // on a runtime worker thread.
-        let watch_root = root.clone();
-        let watcher = tokio::task::spawn_blocking(move || {
-            match watcher.watch(&watch_root, mode) {
-                Ok(()) => Ok(watcher),
-                Err(error) => Err(FsError::unknown(format!(
-                    "cannot watch {}: {error}",
-                    watch_root.display()
-                ))),
-            }
+        let watcher = tokio::task::spawn_blocking(move || match watcher.watch(&watch_root, mode) {
+            Ok(()) => Ok(watcher),
+            Err(error) => Err(FsError::unknown(format!(
+                "cannot watch {}: {error}",
+                watch_root.display()
+            ))),
         })
         .await
         .map_err(join_error)??;
@@ -165,6 +157,33 @@ impl FileWatcher {
             debouncer: tokio::spawn(debounce_loop(rx, opts, handler)),
         })
     }
+}
+
+// FSEvents can repeat accumulated create/remove/modify flags for one path.
+// Resolve only the reported path, never the watched tree, so a removed file
+// cannot become an update (or disappear in create-then-delete coalescing).
+#[cfg(target_os = "macos")]
+fn normalize_fsevent(change: &mut FileChange, kind: &EventKind) {
+    match std::fs::symlink_metadata(&change.resource) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            change.change_type = FileChangeType::Deleted;
+        }
+        Ok(_) => {
+            // FSEvents has no paired rename: the surviving destination must
+            // be discoverable as a new Explorer child, even across include filters.
+            if matches!(kind, EventKind::Modify(ModifyKind::Name(RenameMode::Any))) {
+                change.change_type = FileChangeType::Added;
+            } else if change.change_type == FileChangeType::Deleted {
+                change.change_type = FileChangeType::Updated;
+            }
+        }
+        _ => {} // A permissions or I/O error is not evidence of a deletion.
+    }
+}
+
+fn requested_path(path: &Path, watch_root: &Path, root: &Path) -> PathBuf {
+    path.strip_prefix(watch_root)
+        .map_or_else(|_| path.to_path_buf(), |relative| root.join(relative))
 }
 
 /// Trailing-edge debounce with a hard ceiling: a batch is delivered once no
@@ -514,9 +533,127 @@ mod tests {
         let vendored = root.join("node_modules/pkg/a.ts");
         let other = root.join("src/a.md");
 
-        assert!(matches_patterns(&source, excludes.as_ref(), includes.as_ref()));
-        assert!(!matches_patterns(&vendored, excludes.as_ref(), includes.as_ref()));
-        assert!(!matches_patterns(&other, excludes.as_ref(), includes.as_ref()));
+        assert!(matches_patterns(
+            &source,
+            excludes.as_ref(),
+            includes.as_ref()
+        ));
+        assert!(!matches_patterns(
+            &vendored,
+            excludes.as_ref(),
+            includes.as_ref()
+        ));
+        assert!(!matches_patterns(
+            &other,
+            excludes.as_ref(),
+            includes.as_ref()
+        ));
+    }
+
+    #[test]
+    fn removed_paths_keep_the_requested_namespace() {
+        let temp = tempfile::tempdir().unwrap();
+        let canonical = dunce::canonicalize(temp.path()).unwrap();
+        let requested = canonical.join("alias");
+        let removed = canonical.join("gone.txt");
+        assert!(!removed.exists());
+        assert_eq!(
+            requested_path(&removed, &canonical, &requested),
+            requested.join("gone.txt")
+        );
+        assert_eq!(
+            requested_path(&canonical, &canonical, &requested),
+            requested
+        );
+        let sibling = canonical.with_extension("sibling");
+        assert_eq!(requested_path(&sibling, &canonical, &requested), sibling);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn native_watch_preserves_alias_paths_and_patterns() {
+        use crate::roots::WorkspaceRoots;
+
+        let temp = tempfile::tempdir().unwrap();
+        let base = dunce::canonicalize(temp.path()).unwrap();
+        let actual = base.join("actual");
+        let alias = base.join("alias");
+        std::fs::create_dir(&actual).unwrap();
+        std::fs::create_dir(actual.join("excluded")).unwrap();
+        std::os::unix::fs::symlink(&actual, &alias).unwrap();
+        let roots = WorkspaceRoots::new();
+        roots.add_root(&base).await.unwrap();
+        let resource = roots.validate(&alias).await.unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let watcher = FileWatcher::watch(
+            &resource,
+            WatchOptions {
+                includes: vec![alias.join("**/*.txt").to_string_lossy().into_owned()],
+                excludes: vec!["excluded/**".into()],
+                correlation_id: Some(42),
+                ..WatchOptions::default()
+            },
+            Arc::new(move |batch| {
+                let _ = tx.send(batch);
+            }),
+        )
+        .await
+        .unwrap();
+
+        // Write immediately after registration: no readiness sleeps or polling.
+        std::fs::write(actual.join("excluded/hidden.txt"), "hidden").unwrap();
+        std::fs::write(actual.join("other.md"), "other").unwrap();
+        std::fs::write(actual.join("visible.txt"), "visible").unwrap();
+        let expected = alias.join("visible.txt");
+        let batch = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("native watcher did not deliver a temporary-directory change")
+            .unwrap();
+        assert!(!batch.is_empty());
+        assert!(
+            batch
+                .iter()
+                .all(|change| change.resource == expected && change.correlation_id == Some(42)),
+            "{batch:?}"
+        );
+
+        std::fs::remove_file(actual.join("visible.txt")).unwrap();
+        let batch = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("native watcher did not deliver deletion")
+            .unwrap();
+        assert!(
+            batch.iter().all(|change| change.resource == expected
+                && change.change_type == FileChangeType::Deleted),
+            "{batch:?}"
+        );
+
+        // An atomic save renames an excluded temporary path into an included file.
+        std::fs::write(actual.join("save.tmp"), "replacement").unwrap();
+        std::fs::rename(actual.join("save.tmp"), actual.join("visible.txt")).unwrap();
+        let batch = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("native watcher did not deliver atomic save")
+            .unwrap();
+        assert!(
+            batch
+                .iter()
+                .all(|change| change.resource == expected
+                    && change.change_type == FileChangeType::Added),
+            "{batch:?}"
+        );
+        std::fs::write(actual.join("save.tmp"), "replacement again").unwrap();
+        std::fs::rename(actual.join("save.tmp"), actual.join("visible.txt")).unwrap();
+        let batch = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("native watcher did not deliver atomic replacement")
+            .unwrap();
+        assert!(
+            batch.iter().all(|change| change.resource == expected
+                && change.change_type != FileChangeType::Deleted),
+            "{batch:?}"
+        );
+        drop(watcher);
     }
 
     #[test]
