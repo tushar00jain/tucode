@@ -11,7 +11,6 @@ import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.j
 import { localize2 } from '../../../../nls.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
-import { ILabelService } from '../../../../platform/label/common/label.js';
 import { ResourceContextKey } from '../../../common/contextkeys.js';
 
 class CopyFileLocationAction extends EditorAction {
@@ -34,8 +33,7 @@ class CopyFileLocationAction extends EditorAction {
 		const resource = editor.getModel()?.uri;
 		const position = editor.getPosition();
 		if (!resource || resource.scheme !== Schemas.file || !position) { return; }
-		const path = accessor.get(ILabelService).getUriLabel(resource, { noPrefix: true });
-		await accessor.get(IClipboardService).writeText(`${path}:${position.lineNumber}`);
+		await accessor.get(IClipboardService).writeText(`${resource.fsPath}:${position.lineNumber}`);
 	}
 }
 
