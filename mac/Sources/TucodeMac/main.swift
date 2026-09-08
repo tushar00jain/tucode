@@ -84,50 +84,6 @@ private final class TucodeWindow: NSWindow {
 	}
 }
 
-private final class InsetSidebarView: NSView {
-	private let outline = CAShapeLayer()
-	private let radius: CGFloat = 14
-	private let verticalInset: CGFloat = 10
-
-	override init(frame frameRect: NSRect) {
-		super.init(frame: frameRect)
-		configureOutline()
-	}
-
-	required init?(coder: NSCoder) {
-		super.init(coder: coder)
-		configureOutline()
-	}
-
-	private func configureOutline() {
-		wantsLayer = true
-		outline.fillColor = NSColor(calibratedWhite: 0.105, alpha: 1).cgColor
-		outline.lineWidth = 1
-		layer?.addSublayer(outline)
-	}
-
-	override func layout() {
-		super.layout()
-		guard bounds.width > radius * 2, bounds.height > verticalInset * 2 + radius * 2 else { return }
-		outline.frame = bounds
-		outline.contentsScale = window?.backingScaleFactor ?? 2
-		outline.strokeColor = NSColor.separatorColor.cgColor
-
-		let edge: CGFloat = 0.5
-		let left = edge
-		let right = bounds.width - edge
-		let bottom = verticalInset + edge
-		let top = bounds.height - verticalInset - edge
-		let strokeRadius = radius - edge
-		outline.path = CGPath(
-			roundedRect: CGRect(x: left, y: bottom, width: right - left, height: top - bottom),
-			cornerWidth: strokeRadius,
-			cornerHeight: strokeRadius,
-			transform: nil
-		)
-	}
-}
-
 private func changesDocumentImage() -> NSImage {
 	let image = NSImage(size: NSSize(width: 16, height: 18), flipped: false) { _ in
 		NSColor.labelColor.setStroke()
@@ -261,13 +217,15 @@ private final class NativeOutlineView: NSOutlineView {
 
 final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDelegate,
 	NSOutlineViewDataSource, NSOutlineViewDelegate, WKScriptMessageHandler,
-	WKScriptMessageHandlerWithReply, NSSearchFieldDelegate {
+	WKScriptMessageHandlerWithReply, NSSearchFieldDelegate, NSToolbarDelegate {
 	private var changesFilter: NSSearchField!
 	private var changesInputRevision = 0
 	private let searchControls = NativeSearchControls()
 	private var window: NSWindow!
 	private var errorLabel: NSTextField!
 	private var quickInputField: NativeQuickInputField!
+	private var quickInputToolbarItem: NSSearchToolbarItem!
+	private let quickInputToolbarIdentifier = NSToolbarItem.Identifier("com.tucode.quickInput")
 	private var navigatorContainerBar: NSVisualEffectView!
 	private var navigatorContainerBarWidth: NSLayoutConstraint!
 	private var navigatorContainerCollection: NSCollectionView!
@@ -340,6 +298,12 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		sendNativeInput(type: "windowFocus", payload: ["focused": false])
 	}
 
+	func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions)
+		-> NSApplication.PresentationOptions {
+		// Keep the workspace toolbar in place when the full-screen menu bar hides.
+		proposedOptions.subtracting(.autoHideToolbar)
+	}
+
 	func windowWillClose(_ notification: Notification) {
 		stop()
 		onClose?()
@@ -379,10 +343,6 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		window.titleVisibility = .hidden
 		window.titlebarAppearsTransparent = true
 		window.titlebarSeparatorStyle = .none
-		window.backgroundColor = .windowBackgroundColor
-		let contentController = NSViewController()
-		contentController.view = NSView(frame: NSRect(x: 0, y: 0, width: 1120, height: 720))
-		let content = contentController.view
 		quickInputField = NativeQuickInputField()
 		quickInputField.onOpen = { [weak self] in
 			self?.sendNativeInput(type: "command", payload: ["id": "workbench.action.quickOpen"])
@@ -390,7 +350,25 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		quickInputField.onIntent = { [weak self] intent in
 			self?.sendNativeInput(type: "quickInputEvent", payload: intent)
 		}
+		quickInputToolbarItem = NSSearchToolbarItem(itemIdentifier: quickInputToolbarIdentifier)
+		quickInputToolbarItem.label = "Search Files and Commands"
+		quickInputToolbarItem.searchField = quickInputField
+		quickInputToolbarItem.preferredWidthForSearchField = 368
+		quickInputToolbarItem.visibilityPriority = .high
+		let preferredSearchWidth = quickInputField.widthAnchor.constraint(equalToConstant: 368)
+		preferredSearchWidth.priority = .defaultHigh
+		preferredSearchWidth.isActive = true
+		quickInputField.onBeginInteraction = { [weak self] in
+			self?.quickInputToolbarItem.beginSearchInteraction()
+		}
 		let navigatorShell = try buildNavigatorShell()
+		window.contentViewController = navigatorShell
+		window.toolbarStyle = .unified
+		let toolbar = NSToolbar(identifier: "com.tucode.workspace.toolbar")
+		toolbar.displayMode = .iconOnly
+		toolbar.delegate = self
+		window.toolbar = toolbar
+		let content = navigatorShell.splitViewItems[1].viewController.view
 		errorLabel = NSTextField(wrappingLabelWithString: "")
 		errorLabel.font = .systemFont(ofSize: 13, weight: .medium)
 		errorLabel.textColor = .systemRed
@@ -399,23 +377,20 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		errorLabel.setAccessibilityIdentifier("tucode.bootstrap.error")
 		errorLabel.translatesAutoresizingMaskIntoConstraints = false
 
-		content.addSubview(navigatorShell)
 		content.addSubview(errorLabel)
 		NSLayoutConstraint.activate([
-			navigatorShell.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
-			navigatorShell.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-			navigatorShell.topAnchor.constraint(equalTo: content.safeAreaLayoutGuide.topAnchor),
-			navigatorShell.bottomAnchor.constraint(equalTo: content.bottomAnchor),
 			errorLabel.centerXAnchor.constraint(equalTo: editorAreaView.centerXAnchor),
 			errorLabel.centerYAnchor.constraint(equalTo: editorAreaView.centerYAnchor),
 			errorLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
 			])
-		window.contentViewController = contentController
 		window.initialFirstResponder = navigatorOutline
 
 		keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
 			guard let self else { return event }
-			guard event.window === self.window, self.window.attachedSheet == nil,
+			// AppKit hosts the toolbar in a separate window during full screen.
+			guard let eventWindow = event.window,
+				(eventWindow === self.window || eventWindow === self.quickInputField.window),
+				self.window.attachedSheet == nil,
 				NSApp.modalWindow == nil else { return event }
 			if event.type != .keyDown {
 				self.forwardKeyRelease(event)
@@ -423,7 +398,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			}
 			// Give the native field editor first refusal; NativeWindow forwards unhandled
 			// global shortcuts to VS Code after AppKit's normal key-equivalent dispatch.
-			if let editor = self.searchControls.currentEditor ?? self.changesFilter.currentEditor() ?? self.quickInputField.currentEditor(), editor === self.window.firstResponder {
+			if let editor = self.searchControls.currentEditor ?? self.changesFilter.currentEditor() ?? self.quickInputField.currentEditor(), editor === eventWindow.firstResponder {
 				if self.handleNativeFieldEdit(event, editor: editor) { return nil }
 				// Leave Quick Input's suggestions navigation to AppKit; forward only global shortcuts below.
 				if editor !== self.quickInputField.currentEditor() { return event }
@@ -434,7 +409,21 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		}
 	}
 
-	private func buildNavigatorShell() throws -> NSView {
+	func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+		// AppKit uses this section to place window tabs beside the full-height sidebar.
+		[.sidebarTrackingSeparator, .flexibleSpace, quickInputToolbarIdentifier, .flexibleSpace]
+	}
+
+	func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+		toolbarDefaultItemIdentifiers(toolbar)
+	}
+
+	func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+		willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+		identifier == quickInputToolbarIdentifier ? quickInputToolbarItem : nil
+	}
+
+	private func buildNavigatorShell() throws -> NSSplitViewController {
 		let containerLayout = NSCollectionViewFlowLayout()
 		containerLayout.scrollDirection = .horizontal
 		containerLayout.itemSize = NSSize(width: 30, height: 30)
@@ -471,6 +460,8 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		}
 
 		let containerScroll = NSScrollView()
+		// The selector's container handles spacing; don't inset its fixed-height viewport again.
+		containerScroll.automaticallyAdjustsContentInsets = false
 		containerScroll.documentView = navigatorContainerCollection
 		containerScroll.hasVerticalScroller = false
 		containerScroll.hasHorizontalScroller = false
@@ -570,7 +561,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			guard let self else { return }
 			self.window.makeFirstResponder(self.navigatorOutline)
 		}
-		let sidebarContent = NSStackView(views: [navigatorContainerBar, navigatorSectionScroll,
+		let sidebarContent = NSStackView(views: [navigatorSectionScroll,
 			searchControls, outlineScroll, changesFilter])
 		sidebarContent.orientation = .vertical
 		sidebarContent.alignment = .centerX
@@ -586,15 +577,23 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		outlineScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
 		outlineScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
 
-		let sidebar = InsetSidebarView()
-		sidebar.translatesAutoresizingMaskIntoConstraints = false
-		sidebar.widthAnchor.constraint(equalToConstant: 284).isActive = true
+		let sidebarController = NSViewController()
+		let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 284, height: 720))
+		sidebarController.view = sidebar
+		let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+		let selectorHeader = NSStackView(views: [navigatorContainerBar])
+		selectorHeader.orientation = .vertical
+		selectorHeader.alignment = .centerX
+		selectorHeader.spacing = 0
+		let selectorAccessory = NSSplitViewItemAccessoryViewController()
+		selectorAccessory.view = selectorHeader
+		sidebarItem.addTopAlignedAccessoryViewController(selectorAccessory)
 		sidebar.addSubview(sidebarContent)
 		NSLayoutConstraint.activate([
 			sidebarContent.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
 			sidebarContent.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-			sidebarContent.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 10),
-			sidebarContent.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -10)
+			sidebarContent.topAnchor.constraint(equalTo: sidebar.safeAreaLayoutGuide.topAnchor),
+			sidebarContent.bottomAnchor.constraint(equalTo: sidebar.safeAreaLayoutGuide.bottomAnchor)
 		])
 
 		let webConfiguration = WKWebViewConfiguration()
@@ -615,39 +614,37 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		editorAreaView.onNewFile = { [weak self] in
 			self?.sendNativeInput(type: "command", payload: ["id": "workbench.action.files.newUntitledFile"])
 		}
-		let editorColumn = NSStackView(views: [quickInputField, editorAreaView])
+		let editorColumn = NSStackView(views: [editorAreaView])
 		editorColumn.orientation = .vertical
 		editorColumn.alignment = .centerX
 		editorColumn.distribution = .fill
 		editorColumn.spacing = 0
-		editorColumn.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
-		editorColumn.setCustomSpacing(8, after: quickInputField)
 		editorColumn.setAccessibilityElement(true)
 		editorColumn.setAccessibilityRole(.group)
 		editorColumn.setAccessibilityIdentifier("tucode.editor.column")
-		quickInputField.setContentHuggingPriority(.required, for: .vertical)
-		quickInputField.setContentCompressionResistancePriority(.required, for: .vertical)
-		quickInputField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 		editorAreaView.setContentHuggingPriority(.defaultLow, for: .vertical)
-		let preferredSearchWidth = quickInputField.widthAnchor.constraint(equalToConstant: 368)
-		preferredSearchWidth.priority = .defaultHigh
-		NSLayoutConstraint.activate([
-			preferredSearchWidth,
-			quickInputField.widthAnchor.constraint(lessThanOrEqualToConstant: 368),
-			quickInputField.widthAnchor.constraint(lessThanOrEqualTo: editorColumn.widthAnchor, constant: -32),
-			editorAreaView.widthAnchor.constraint(equalTo: editorColumn.widthAnchor)
-		])
+		editorAreaView.widthAnchor.constraint(equalTo: editorColumn.widthAnchor).isActive = true
 
-		let shell = NSStackView(views: [sidebar, editorColumn])
-		shell.orientation = .horizontal
-		shell.alignment = .top
-		shell.distribution = .fill
-		shell.spacing = 0
+		let editorController = NSViewController()
+		editorController.view = NSView(frame: NSRect(x: 0, y: 0, width: 826, height: 720))
+		editorColumn.translatesAutoresizingMaskIntoConstraints = false
+		editorController.view.addSubview(editorColumn)
 		NSLayoutConstraint.activate([
-			sidebar.heightAnchor.constraint(equalTo: shell.heightAnchor),
-			editorColumn.heightAnchor.constraint(equalTo: shell.heightAnchor)
+			editorColumn.leadingAnchor.constraint(equalTo: editorController.view.leadingAnchor),
+			editorColumn.trailingAnchor.constraint(equalTo: editorController.view.trailingAnchor),
+			editorColumn.topAnchor.constraint(equalTo: editorController.view.safeAreaLayoutGuide.topAnchor),
+			editorColumn.bottomAnchor.constraint(equalTo: editorController.view.bottomAnchor)
 		])
-		shell.setAccessibilityIdentifier("tucode.navigator.shell")
+		sidebarItem.allowsFullHeightLayout = true
+		sidebarItem.minimumThickness = 284
+		sidebarItem.maximumThickness = 284
+		sidebarItem.canCollapse = false
+		let editorItem = NSSplitViewItem(viewController: editorController)
+		editorItem.minimumThickness = 320
+		let shell = NSSplitViewController()
+		shell.addSplitViewItem(sidebarItem)
+		shell.addSplitViewItem(editorItem)
+		shell.view.setAccessibilityIdentifier("tucode.navigator.shell")
 		return shell
 	}
 

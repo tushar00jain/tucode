@@ -4,7 +4,7 @@ AppKit owns native controls and input; Wry hosts the editor WKWebView.
 Rust runs on workers inside the app. The packaged runtime needs no Node installation.
 See [architecture](../docs/ARCHITECTURE.md) and [shared TODO](../docs/TODO.md).
 
-From the repository root, on macOS 14+ with Node, Rust, and Xcode installed:
+From the repository root, on macOS 26+ with Node, Rust, and Xcode installed:
 
 ```sh
 npm install

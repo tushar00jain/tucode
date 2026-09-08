@@ -53,6 +53,18 @@ final class NativeQuickInputTests: XCTestCase {
 		XCTAssertEqual(intents.count, 2, "dismissed UI cannot dispatch stale rows")
 	}
 
+	func testToolbarInteractionBeginsOnlyWhenOpeningSearch() {
+		let field = NativeQuickInputField()
+		var beginnings = 0
+		field.onBeginInteraction = { beginnings += 1 }
+		field.apply(snapshot())
+		field.apply(snapshot())
+		XCTAssertEqual(beginnings, 1, "Result updates must not restart toolbar focus or expansion")
+		field.hideSuggestions()
+		field.apply(snapshot())
+		XCTAssertEqual(beginnings, 2)
+	}
+
 	func testArrowKeysAndReturnUseServiceNavigationAndAcceptance() {
 		let field = NativeQuickInputField()
 		var intents: [QuickInputIntent] = []

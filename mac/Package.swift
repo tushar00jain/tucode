@@ -8,7 +8,7 @@ let rustTarget = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 
 let package = Package(
 	name: "TucodeMac",
-	platforms: [.macOS(.v14)],
+	platforms: [.macOS("26.0")],
 	products: [
 		.executable(name: "TucodeMac", targets: ["TucodeMac"])
 	],

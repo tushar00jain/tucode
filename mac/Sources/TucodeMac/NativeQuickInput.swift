@@ -25,10 +25,11 @@ private final class QuickInputTable: NSTableView {
 	}
 }
 
-/// The field stays in the editor column. Only the native results list lives in the popover.
+/// The field lives in the native toolbar; the results list lives in its anchored popover.
 final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 	NSTableViewDataSource, NSTableViewDelegate, NSPopoverDelegate {
 	var onOpen: (() -> Void)?
+	var onBeginInteraction: (() -> Void)?
 	var onIntent: ((QuickInputIntent) -> Void)?
 	private var snapshot: QuickInputSnapshot?
 	private var applyingSnapshot = false
@@ -45,7 +46,7 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 		target = self
 		action = #selector(valueChanged)
 		sendsSearchStringImmediately = true
-		if #available(macOS 26, *) { controlSize = .extraLarge }
+		controlSize = .extraLarge
 		font = .systemFont(ofSize: NSFont.systemFontSize(for: controlSize))
 		cell?.usesSingleLineMode = true
 		focusRingType = .none
@@ -149,6 +150,7 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 				results.scrollRowToVisible(focused)
 			}
 		} else { results.deselectAll(nil) }
+		if opening { onBeginInteraction?() }
 		if next.hideList { popover.close() }
 		else if window?.isVisible == true, let container = superview {
 			sizeResults()

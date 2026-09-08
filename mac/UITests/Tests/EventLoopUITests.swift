@@ -71,7 +71,7 @@ final class EventLoopUITests: XCTestCase {
 		XCTAssertFalse(app.staticTexts["tucode.bootstrap.error"].exists)
 	}
 
-	func testEditorColumnLayoutAndQuickOpenAcceptance() throws {
+	func testToolbarSearchLayoutAndQuickOpenAcceptance() throws {
 		continueAfterFailure = false
 		let (app, field) = try launchQuickInputFixture()
 		XCTAssertTrue(waitUntilHittable(field))
@@ -79,18 +79,20 @@ final class EventLoopUITests: XCTestCase {
 		let editorTabs = app.scrollViews["tucode.editor.tabs"]
 		let editorCanvas = app.descendants(matching: .any).matching(identifier: "tucode.editor.column").firstMatch
 		let collapsedFrame = field.frame
-		XCTAssertEqual(field.frame.width, 368, accuracy: 2)
+		XCTAssertGreaterThan(field.frame.width, 200)
+		XCTAssertLessThanOrEqual(field.frame.width, 368)
+		XCTAssertTrue(app.toolbars.searchFields["tucode.quickInput.field"].exists)
 		XCTAssertEqual(field.frame.midX, editorCanvas.frame.midX, accuracy: 1)
 		XCTAssertLessThan(field.frame.maxY, editorTabs.frame.minY)
 		let window = app.windows.firstMatch
 		let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -2, dy: 0))
 		edge.press(forDuration: 0.1, thenDragTo: edge.withOffset(CGVector(dx: -160, dy: 0)))
 		XCTAssertLessThan(window.frame.width, 1020)
-		XCTAssertEqual(field.frame.width, collapsedFrame.width, accuracy: 1)
+		XCTAssertLessThanOrEqual(field.frame.width, collapsedFrame.width + 1)
 		XCTAssertEqual(field.frame.height, collapsedFrame.height, accuracy: 1)
 		XCTAssertEqual(field.frame.midX, editorCanvas.frame.midX, accuracy: 1)
 		let layout = XCTAttachment(screenshot: window.screenshot())
-		layout.name = "Search centered in resized editor column"; layout.lifetime = .keepAlways; add(layout)
+		layout.name = "Toolbar search centered above resized editor column"; layout.lifetime = .keepAlways; add(layout)
 		app.typeKey("p", modifierFlags: .command)
 		XCTAssertTrue(wait(for: NSPredicate(format: "placeholderValue CONTAINS %@", "Search files"), on: field, timeout: 3))
 		field.typeText("Package.swift")
@@ -1187,6 +1189,13 @@ final class EventLoopUITests: XCTestCase {
 		let folderTab = app.tabs["native-picker"].firstMatch
 		XCTAssertTrue(originalTab.waitForExistence(timeout: 5), app.debugDescription)
 		XCTAssertTrue(folderTab.exists, app.debugDescription)
+		let outline = app.outlines["tucode.navigator.outline"]
+		XCTAssertGreaterThanOrEqual(originalTab.frame.minX, outline.frame.maxX,
+			"Native window tabs must start beside the full-height Explorer")
+		let tabLayout = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+		tabLayout.name = "Native window tabs beside full-height Explorer"
+		tabLayout.lifetime = .keepAlways
+		add(tabLayout)
 		folderRow.click()
 		let folderEditor = app.textViews.matching(NSPredicate(format: "label == %@", "open source.swift")).firstMatch
 		XCTAssertTrue(folderEditor.waitForExistence(timeout: 5))
