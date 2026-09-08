@@ -55,13 +55,11 @@ test('Quick Open uses a separate native popover sized to its field', () => {
 	assert.doesNotMatch(appKit, /quickInputTable|quickInputPanel|quickInputBackground|quickInputResultStatus|handleKeyEvent/);
 });
 
-test('persistent Quick Open stays above the editor and fits within its column', () => {
-	assert.match(appKit, /NSStackView\(views: \[quickInputField, editorAreaView\]\)/);
-	assert.match(appKit, /editorColumn\.orientation = \.vertical/);
-	assert.match(appKit, /editorColumn\.alignment = \.centerX/);
-	assert.match(appKit, /quickInputField\.widthAnchor\.constraint\(lessThanOrEqualTo: editorColumn\.widthAnchor, constant: -32\)/,
-		'the search field must fit within the editor column when the window narrows');
-	assert.match(appKit, /quickInputField\.setContentCompressionResistancePriority\(\.required, for: \.vertical\)/);
+test('persistent Quick Open uses AppKit toolbar placement and sizing', () => {
+	assert.match(appKit, /NSSearchToolbarItem\(itemIdentifier: quickInputToolbarIdentifier\)/);
+	assert.match(appKit, /quickInputToolbarItem\.searchField = quickInputField/);
+	assert.match(appKit, /preferredSearchWidth\.priority = \.defaultHigh/,
+		'preferred width must yield to AppKit toolbar sizing');
 	assert.doesNotMatch(appKit, /content\.addSubview\(quickInputField\)|quickInputField\.(topAnchor|centerXAnchor|leadingAnchor|trailingAnchor)/);
 	assert.doesNotMatch(nativeQuickInput, /(?<![\w.])(?:self\.)?heightAnchor\.constraint/,
 		"AppKit sizes the search field; the results popover may have its own height constraint");
@@ -83,8 +81,9 @@ test('native file icons share VS Code language metadata and bundled Seti native 
 	assert.match(appKit, /self\.changesFilter\.currentEditor\(\) \?\? self\.quickInputField\.currentEditor\(\)/);
 	assert.match(web, /new NativeEditorTabs\(this\.groups, publishFiles,/);
 	assert.match(web, /createInstance\(NativeExplorer, publishFiles\)/);
-	assert.match(web, /row\.languageId = languages\.guessLanguageIdByFilepathOrFirstLine/);
-	assert.match(web, /row\.fileIconTheme = themes\.getFileIconTheme\(\)\.settingsId/);
+	assert.match(web, /languageId: row\.resource[\s\S]*languages\.guessLanguageIdByFilepathOrFirstLine/);
+	assert.match(web, /const themeId = themes\.getFileIconTheme\(\)\.settingsId/);
+	assert.match(web, /fileIconTheme: themeId/);
 	assert.match(web, /themes\.onDidFileIconThemeChange\(\(\) => \{ this\.tabs\.refresh\(\); this\.navigator\.changesUpdated\(\); \}\)/);
 	const icons = readFileSync(resolve(root, 'mac/Sources/TucodeMac/NativeSetiIcons.swift'), 'utf8');
 	assert.match(icons, /theme-seti\/icons/);

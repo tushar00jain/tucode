@@ -338,6 +338,30 @@ final class EventLoopUITests: XCTestCase {
 		XCTAssertFalse(app.staticTexts["tucode.bootstrap.error"].exists)
 	}
 
+	func testNativeSearchLargeResultsKeepInputAndNavigationResponsive() throws {
+		continueAfterFailure = false
+		let fixture = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["TUCODE_MAC_TEST_WORKSPACE"]))
+		let app = try launchApp(repository: fixture.appendingPathComponent("search-load"))
+		let search = app.buttons["tucode.navigator.container.workbench.view.search"]
+		XCTAssertTrue(waitUntilHittable(search)); search.click()
+		let query = app.searchFields["tucode.search.query"]
+		XCTAssertTrue(waitUntilHittable(query))
+		query.click(); query.typeText("boundary-needle"); query.typeKey(.return, modifierFlags: [])
+		let status = app.staticTexts["tucode.search.status"]
+		XCTAssertTrue(wait(for: NSPredicate(format: "value BEGINSWITH %@", "20000 results"), on: status, timeout: 20))
+		let started = Date()
+		query.typeKey("a", modifierFlags: .command); query.typeText("no-such-result")
+		XCTAssertLessThan(Date().timeIntervalSince(started), 5, "typing must not wait behind repeated full result projections")
+		XCTAssertEqual(query.value as? String, "no-such-result")
+		let explorer = app.buttons["tucode.navigator.container.workbench.view.explorer"]
+		explorer.click()
+		XCTAssertTrue(wait(for: NSPredicate { _, _ in !query.isHittable }, on: query, timeout: 5), app.debugDescription)
+		search.click()
+		XCTAssertTrue(waitUntilHittable(query))
+		XCTAssertEqual(query.value as? String, "no-such-result")
+		XCTAssertTrue(wait(for: NSPredicate(format: "value BEGINSWITH %@", "0 results"), on: status, timeout: 5))
+	}
+
 	func testNativeSearchQueryAndPinnedFilter() throws {
 		continueAfterFailure = false
 		let fixturePath = try XCTUnwrap(ProcessInfo.processInfo.environment["TUCODE_MAC_TEST_WORKSPACE"])
@@ -356,8 +380,12 @@ final class EventLoopUITests: XCTestCase {
 		let editor = app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "EditorAreaView.swift")).firstMatch
 		XCTAssertTrue(waitUntilHittable(host), app.debugDescription)
 		XCTAssertTrue(waitUntilHittable(editor), app.debugDescription)
-		XCTAssertLessThan(query.frame.maxY, host.frame.minY, "Content query belongs above results")
-		XCTAssertGreaterThan(filter.frame.minY, host.frame.maxY, "Result filter belongs below results")
+		// AppKit may report the full frame of a partially clipped last row. The
+		// scroll viewport, not a row's un-clipped frame, defines the result area.
+		let results = app.scrollViews.containing(.outline, identifier: "tucode.navigator.outline").firstMatch
+		XCTAssertLessThan(query.frame.maxY, results.frame.minY, "Content query belongs above results")
+		XCTAssertGreaterThanOrEqual(filter.frame.minY + 2, results.frame.maxY,
+			"Result viewport must end above the filter, allowing AppKit's focus-ring frame")
 		let appearance = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
 		appearance.name = "Native Search controls and results"
 		appearance.lifetime = .keepAlways

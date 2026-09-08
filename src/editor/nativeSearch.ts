@@ -1,7 +1,7 @@
 /* Native Search paint and input transport over the existing search model and data source. */
 import { Disposable } from '../vs/base/common/lifecycle.js';
 import { Emitter } from '../vs/base/common/event.js';
-import { RunOnceScheduler, Throttler } from '../vs/base/common/async.js';
+import { RunOnceScheduler } from '../vs/base/common/async.js';
 import { isCancellationError } from '../vs/base/common/errors.js';
 import { dirname } from '../vs/base/common/resources.js';
 import { ObjectTreeModel } from '../vs/base/browser/ui/tree/objectTreeModel.js';
@@ -15,9 +15,9 @@ import { IWorkspaceContextService } from '../vs/platform/workspace/common/worksp
 import { IEditorService } from '../vs/workbench/services/editor/common/editorService.js';
 import { ISearchConfigurationProperties, ViewMode } from '../vs/workbench/services/search/common/search.js';
 import { QueryBuilder } from '../vs/workbench/services/search/common/queryBuilder.js';
-import { SearchViewDataSource } from '../vs/workbench/contrib/search/browser/searchView.js';
+import { RefreshTreeController, SearchViewDataSource } from '../vs/workbench/contrib/search/browser/searchView.js';
 import { ISearchViewModelWorkbenchService } from '../vs/workbench/contrib/search/browser/searchTreeModel/searchViewModelWorkbenchService.js';
-import { isSearchTreeFileMatch, isSearchTreeFolderMatch, isSearchTreeMatch, RenderableMatch } from '../vs/workbench/contrib/search/browser/searchTreeModel/searchTreeCommon.js';
+import { IChangeEvent, isSearchTreeFileMatch, isSearchTreeFolderMatch, isSearchTreeMatch, RenderableMatch } from '../vs/workbench/contrib/search/browser/searchTreeModel/searchTreeCommon.js';
 import { searchMatchComparer } from '../vs/workbench/contrib/search/browser/searchCompare.js';
 import { SearchRootController } from '../vs/workbench/contrib/search/tauri/searchRootController.js';
 import { searchQueryOptions } from '../vs/workbench/contrib/search/common/searchQuery.js';
@@ -38,7 +38,9 @@ export class NativeSearch extends Disposable {
 	private pending = Promise.resolve();
 	private refreshWork = Promise.resolve();
 	private readonly queryController = this._register(new SearchQueryController(newSearch => this.model.cancelSearch(newSearch), error => this.errors.fire(error)));
-	private readonly refreshThrottler = this._register(new Throttler());
+	private readonly refreshController: RefreshTreeController;
+	private readonly pendingChanges: IChangeEvent[] = [];
+	private cachedRows: ReturnType<NativeSearch['captureRows']> | undefined;
 	private readonly builder: QueryBuilder;
 	private readonly refreshScheduler: RunOnceScheduler;
 	// Draft query and native disclosure state are local; replacement state belongs to the model.
@@ -61,16 +63,27 @@ export class NativeSearch extends Disposable {
 		});
 		this.root = this._register(new SearchRootController(() => ({
 			updateChildren: () => this.rebuild(), getFocus: () => this.selected ? [this.selected] : [],
-			setFocus: rows => { this.selected = rows[0]; this.changed(); }, reveal() {}, domFocus() {},
+			setFocus: rows => { this.selected = rows[0]; this.rowsChanged(); }, reveal() {}, domFocus() {},
 			navigate: () => { let index = 0; return { next: () => this.rendered[index++]?.element ?? null }; }
 		}), labels, () => new NativeFilterBox(), () => this.changed(), work => { void this.queue(work); }));
 		this.tree = new ObjectTreeModel('Mac Search', { filter: this.root.filter, identityProvider: { getId: row => row.id() } });
 		this._register(this.tree.onDidSpliceRenderedNodes(e => this.rendered.splice(e.start, e.deleteCount, ...e.elements as ITreeNode<RenderableMatch, void>[])));
+		this.refreshController = this._register(instantiation.createInstance(RefreshTreeController, {
+			model: this.model, rootController: this.root,
+			getControl: () => ({
+				updateChildren: element => this.queue(() => this.rebuild(element)),
+				hasNode: element => this.tree.has(element),
+				rerender: () => this.rowsChanged(),
+				cancelAllRefreshPromises() {}
+			})
+		}, () => this.config));
 		this.refreshScheduler = this._register(new RunOnceScheduler(() => { void this.refresh(); }, 80));
-		this._register(this.model.onSearchResultChanged(() => this.scheduleRefresh()));
+		this._register(this.model.onSearchResultChanged(event => { this.pendingChanges.push(event); this.scheduleRefresh(); }));
 		this._register(this.model.onReplaceTermChanged(() => this.scheduleRefresh()));
-		this._register(configuration.onDidChangeConfiguration(e => { if (e.affectsConfiguration('search')) { void this.refresh(); } }));
+		this._register(configuration.onDidChangeConfiguration(e => { if (e.affectsConfiguration('search')) { this.pendingChanges.length = 0; void this.refresh(); } }));
+		this._register(theme.onDidColorThemeChange(() => this.rowsChanged()));
 	}
+	private rowsChanged(): void { this.cachedRows = undefined; this.changed(); }
 	private changed(): void { if (!this._store.isDisposed) { this.publish(); } }
 	private scheduleRefresh(): void { if (!this.refreshScheduler.isScheduled()) { this.refreshScheduler.schedule(); } }
 	private get config(): ISearchConfigurationProperties { return this.configuration.getValue<ISearchConfigurationProperties>('search'); }
@@ -80,7 +93,8 @@ export class NativeSearch extends Disposable {
 	}
 	refresh(): Promise<void> {
 		this.refreshScheduler.cancel();
-		return this.refreshWork = this.refreshThrottler.queue(() => this.queue(() => this.rebuild()));
+		const changes = this.pendingChanges.splice(0);
+		return this.refreshWork = this.refreshController.queue(changes.length ? changes : undefined);
 	}
 	async whenSettled(): Promise<void> {
 		let work: Promise<void>;
@@ -100,20 +114,31 @@ export class NativeSearch extends Disposable {
 			this.changed();
 		}
 	}
-	private async rebuild(): Promise<void> {
+	private async rebuild(parent?: RenderableMatch): Promise<void> {
 		const version = this.queryController.currentVersion;
 		this.root.invalidate();
-		const visit = async (element: RenderableMatch): Promise<IObjectTreeElement<RenderableMatch>> => ({ element,
-			children: this.source.hasChildren(element) ? await Promise.all(Array.from(await this.source.getChildren(element), visit)) : undefined,
-			collapsible: !isSearchTreeMatch(element),
-			collapsed: this.tree.has(element) ? this.tree.isCollapsed(element) : !isSearchTreeMatch(element) &&
-				(this.config.collapseResults === 'alwaysCollapse' || (element.count() > 10 && this.config.collapseResults !== 'alwaysExpand')) });
-		const children = await Promise.all(Array.from(await this.source.getChildren(this.model.searchResult), visit));
+		// AsyncDataTree's lazy branch policy: collapsed items become stale and are
+		// fetched on expansion. Do not materialize their match leaves for native paint.
+		const visit = async (element: RenderableMatch): Promise<IObjectTreeElement<RenderableMatch>> => {
+			const collapsible = !isSearchTreeMatch(element);
+			const collapsed = this.tree.getNodeByIdentity(element.id())?.collapsed ?? (collapsible &&
+				(this.config.collapseResults === 'alwaysCollapse' || (element.count() > 10 && this.config.collapseResults !== 'alwaysExpand')));
+			return { element, collapsible, collapsed,
+				children: collapsible && !collapsed && this.source.hasChildren(element)
+					? await Promise.all(Array.from(await this.source.getChildren(element), visit)) : undefined };
+		};
+		if (parent && (!this.tree.has(parent) || this.tree.isCollapsed(parent))) {
+			if (this.root.input.isOpen) { this.tree.refilter(); }
+			this.rowsChanged(); return;
+		}
+		const children = await Promise.all(Array.from(await this.source.getChildren(parent ?? this.model.searchResult), visit));
 		if (!this.queryController.isCurrent(version)) { return; }
-		this.tree.setChildren(null, children);
+		this.tree.setChildren(parent ?? null, children);
+		if (parent && this.root.input.isOpen) { this.tree.refilter(); }
 		if (this.selected && !this.tree.has(this.selected)) { this.selected = this.rendered[0]?.element; }
-		this.changed();
+		this.rowsChanged();
 	}
+
 	private search(version: number): Promise<void> {
 		return this.queryController.enqueue(version, async () => {
 			this.controls.searching = !!this.controls.query;
@@ -144,7 +169,10 @@ export class NativeSearch extends Disposable {
 		return { filter: this.root.input.snapshot, search: { ...this.controls, replace: this.model.replaceString,
 			preserveCase: this.model.preserveCase, replaceVisible: this.model.isReplaceActive(),
 			message: this.controls.message || (this.controls.query ? `${count} results in ${this.model.searchResult.fileCount()} files` : '') },
-			outlineRows: this.rendered.map(node => {
+			outlineRows: this.cachedRows ??= this.captureRows() };
+	}
+	private captureRows() {
+		return this.rendered.map(node => {
 				const row = node.element;
 				const parent = this.tree.getParentNodeLocation(row);
 				const match = isSearchTreeMatch(row);
@@ -154,7 +182,7 @@ export class NativeSearch extends Disposable {
 					isDirectory: !match && !isSearchTreeFileMatch(row), kind: match ? 'search-match' : undefined,
 					expandable: node.collapsible, expanded: node.collapsible && !node.collapsed, selected: row === this.selected, focused: row === this.selected,
 					render: { root: {}, runs: match ? this.matchRuns(row) : [{ text: label, style: {} }], accessibleLabel: label } };
-			}) };
+			});
 	}
 	private matchRuns(row: RenderableMatch): IDomRenderRun[] {
 		if (!isSearchTreeMatch(row)) { return []; }
@@ -194,8 +222,14 @@ export class NativeSearch extends Disposable {
 		if (payload.eventType === 'search-focus-results') { this.changed(); return true; }
 		const row = typeof payload.id === 'string' ? this.rendered.find(node => node.element.id() === payload.id)?.element : this.selected;
 		if (!row) { return false; }
-		if (payload.eventType === 'outline-focus') { this.selected = row; return true; }
-		if (payload.eventType === 'outline-toggle') { this.tree.setCollapsed(row, !payload.expanded); this.changed(); return true; }
+		if (payload.eventType === 'outline-focus') { this.selected = row; this.cachedRows = undefined; return true; }
+		if (payload.eventType === 'outline-toggle') {
+			void this.queue(async () => {
+				if (!this.tree.has(row)) { return; }
+				this.tree.setCollapsed(row, !payload.expanded);
+				if (payload.expanded) { await this.rebuild(row); } else { this.rowsChanged(); }
+			}); return true;
+		}
 		if (payload.eventType === 'search-replace-selected') { void this.queue(async () => { await this.model.searchResult.batchReplace([row]); await this.rebuild(); }); return true; }
 		if (payload.eventType === 'outline-open') {
 			const match = isSearchTreeMatch(row) ? row : isSearchTreeFileMatch(row) ? row.matches().sort(searchMatchComparer)[0] : undefined;

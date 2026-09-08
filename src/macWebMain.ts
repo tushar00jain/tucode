@@ -5,6 +5,9 @@
  *  mounts one CodeEditorWidget. AppKit owns tabs and all surrounding application chrome.
  *--------------------------------------------------------------------------------------------*/
 
+import { invoke as invokeNativeNavigator } from './editor/nativeTransport.js';
+import { NativeOutlineUpdates } from './editor/nativeOutlineUpdates.js';
+
 import './vs/workbench/browser/media/style.css';
 import './styles.css';
 
@@ -426,12 +429,22 @@ class MacEditorOnlyAdapter extends Disposable {
 		const languages = instantiationService.invokeFunction(accessor => accessor.get(ILanguageService));
 		const themes = instantiationService.invokeFunction(accessor => accessor.get(IWorkbenchThemeService));
 		// Native file paint uses the same language identification for tabs and all navigator surfaces.
-		const publishFiles = (type: string, payload: any) => {
-			const rows = type === 'editorTabsPaint' ? payload.tabs : type === 'navigatorSnapshot' ? payload.outlineRows : [];
-			for (const row of rows) {
-				row.fileIconTheme = themes.getFileIconTheme().settingsId;
-				if (row.resource && !row.isDirectory) { row.languageId = languages.guessLanguageIdByFilepathOrFirstLine(URI.parse(row.resource)); }
+		const outlineUpdates = new NativeOutlineUpdates();
+		const publishFiles = (type: string, payload: any): void | Promise<void> => {
+			const themeId = themes.getFileIconTheme().settingsId;
+			const filePaint = (row: any) => row.kind === 'search-match' ? row : {
+				...row, fileIconTheme: themeId,
+				languageId: row.resource && !row.isDirectory ? languages.guessLanguageIdByFilepathOrFirstLine(URI.parse(row.resource)) : undefined
+			};
+			if (type === 'navigatorSnapshot') {
+				const { outlineRows, ...chrome } = payload;
+				const outline = outlineUpdates.capture(`${payload.activeContainerId}/${payload.focusedSectionId}/${themeId}`, outlineRows);
+				outline.rows = outline.rows.map(filePaint);
+				// Send text so WebKit does not expand thousands of row dictionaries on
+				// AppKit's thread. Swift decodes and prepares child differences off-main.
+				return invokeNativeNavigator<void>('mac_apply_navigator', { snapshot: JSON.stringify({ ...chrome, outline }) });
 			}
+			if (type === 'editorTabsPaint') { payload = { ...payload, tabs: payload.tabs.map(filePaint) }; }
 			publish(type, payload);
 		};
 		this.tabs = this._register(new NativeEditorTabs(this.groups, publishFiles,

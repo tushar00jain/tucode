@@ -2687,12 +2687,24 @@ export class SearchViewDataSource implements IAsyncDataSource<ISearchResult, Ren
 	}
 }
 
-class RefreshTreeController extends Disposable {
+/** The refresh policy is shared with native trees; it does not require a DOM view. */
+export interface ISearchRefreshView {
+	readonly model: Pick<ISearchModel, 'searchResult'>;
+	readonly rootController: { invalidate(): void };
+	getControl(): {
+		updateChildren(element?: RenderableMatch): Promise<void>;
+		hasNode(element: RenderableMatch): boolean;
+		rerender(element?: RenderableMatch): void;
+		cancelAllRefreshPromises(recursive: boolean): void;
+	};
+}
+
+export class RefreshTreeController extends Disposable {
 
 	private refreshTreeThrottler: Throttler;
 
 	constructor(
-		private readonly searchView: SearchView,
+		private readonly searchView: ISearchRefreshView,
 		private readonly geSearchConfig: () => ISearchConfigurationProperties,
 		@IFileService private readonly fileService: IFileService,
 	) {
@@ -2701,6 +2713,7 @@ class RefreshTreeController extends Disposable {
 	}
 
 	private queuedIChangeEvents: IChangeEvent[] = [];
+	private queuedFullRefresh = false;
 	private refreshWork: Promise<void> = Promise.resolve();
 
 	async whenSettled(): Promise<void> {
@@ -2712,21 +2725,22 @@ class RefreshTreeController extends Disposable {
 		this.searchView.getControl().cancelAllRefreshPromises(true);
 	}
 
-	public async queue(e?: IChangeEvent): Promise<void> {
+	public async queue(e?: IChangeEvent | IChangeEvent[]): Promise<void> {
 		if (e) {
-			this.queuedIChangeEvents.push(e);
-		}
+			this.queuedIChangeEvents.push(...(Array.isArray(e) ? e : [e]));
+		} else { this.queuedFullRefresh = true; }
 		return this.refreshWork = this.refreshTreeThrottler.queue(this.refreshTreeUsingQueue.bind(this));
 	}
 
 	private async refreshTreeUsingQueue(): Promise<void> {
-		const aggregateChangeEvent: IChangeEvent | undefined = this.queuedIChangeEvents.length === 0 ? undefined : {
+		const aggregateChangeEvent: IChangeEvent | undefined = this.queuedFullRefresh || this.queuedIChangeEvents.length === 0 ? undefined : {
 			elements: this.queuedIChangeEvents.map(e => e.elements).flat(),
 			added: this.queuedIChangeEvents.some(e => e.added),
 			removed: this.queuedIChangeEvents.some(e => e.removed),
 			clearingAll: this.queuedIChangeEvents.some(e => e.clearingAll),
 		};
 		this.queuedIChangeEvents = [];
+		this.queuedFullRefresh = false;
 		return this.refreshTree(aggregateChangeEvent);
 	}
 

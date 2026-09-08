@@ -31,6 +31,21 @@ for MAC_TEST_FILE in Sources/TucodeMac/Projection.swift Sources/TucodeMac/Editor
 done
 export TEST_RUNNER_TUCODE_MAC_TEST_WORKSPACE="$MAC_TEST_WORKSPACE"
 
+# Enough expanded results to exercise the native boundary rather than just the search model.
+node --input-type=module - "$MAC_TEST_WORKSPACE" <<'JS'
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const root = join(process.argv[2], 'search-load');
+mkdirSync(join(root, '.vscode'), { recursive: true });
+writeFileSync(join(root, '.vscode/settings.json'), JSON.stringify({
+  'search.collapseResults': 'alwaysExpand', 'search.defaultViewMode': 'list', 'search.searchOnTypeDebouncePeriod': 300
+}));
+for (let file = 0; file < 1000; file++) {
+  writeFileSync(join(root, `result-${String(file).padStart(4, '0')}.txt`),
+    Array.from({ length: 20 }, (_, line) => `boundary-needle ${file} ${line}\n`).join(''));
+}
+JS
+
 mkdir -p "$MAC_TEST_WORKSPACE/test/native/fixtures" "$MAC_TEST_WORKSPACE/test/e2e"
 cp "$REPOSITORY_ROOT/test/native/fixtures/EditorClickFixture.swift" "$MAC_TEST_WORKSPACE/test/native/fixtures/EditorClickFixture.swift"
 cp "$REPOSITORY_ROOT/test/native/terminalFindRealPty.test.mjs" "$MAC_TEST_WORKSPACE/test/native/terminalFindRealPty.test.mjs"

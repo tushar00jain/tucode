@@ -53,7 +53,7 @@ struct NavigatorSnapshot: Codable {
 	let focusedSectionId: String?
 	let containers: [NavigatorContainer]
 	let sections: [NavigatorSection]
-	let outlineRows: [OutlineRow]
+	let outline: NativeOutlineUpdate
 	let filter: NavigatorFilter?
 	let search: NativeSearchState?
 }
@@ -149,7 +149,6 @@ enum ModelMessage {
 	case quickInputSnapshot(QuickInputSnapshot)
 	case quickInputUpdate(QuickInputUpdate)
 	case quickInputHidden
-	case navigatorSnapshot(NavigatorSnapshot)
 	case editorTabsPaint(EditorTabsPaint)
 	case mainMenu(MainMenuPaint)
 	case contextMenu(ContextMenuPaint)
@@ -188,8 +187,6 @@ func decodeProjectionMessage(_ body: Any) throws -> ModelMessage {
 	case "quickInputUpdate":
 		return .quickInputUpdate(try decoder.decode(IncomingEnvelope<QuickInputUpdate>.self, from: data).payload)
 	case "quickInputHidden": return .quickInputHidden
-	case "navigatorSnapshot":
-		return .navigatorSnapshot(try decoder.decode(IncomingEnvelope<NavigatorSnapshot>.self, from: data).payload)
 	case "editorTabsPaint":
 		return .editorTabsPaint(try decoder.decode(IncomingEnvelope<EditorTabsPaint>.self, from: data).payload)
 	case "mainMenu":

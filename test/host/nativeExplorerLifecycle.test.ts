@@ -13,7 +13,7 @@ import { FilesFilter, FileSorter } from '../../src/vs/workbench/contrib/files/br
 import { ExplorerDecorationsProvider } from '../../src/vs/workbench/contrib/files/browser/views/explorerDecorationsProvider.js';
 import type { MacContextMenuService } from '../../src/editor/macContextMenuService.js';
 
-function fixture() {
+function fixture(acknowledge?: () => Promise<void>) {
 	const started = new DeferredPromise<void>();
 	const children = new DeferredPromise<ExplorerItem[]>();
 	const themeChange = new Emitter<void>();
@@ -32,7 +32,11 @@ function fixture() {
 	const menus: Parameters<MacContextMenuService['showNativeMenu']>[] = [];
 	const explorer = { roots: [folder], registerView() {}, sortOrderConfiguration: {},
 		getEditableData: (_item: ExplorerItem): any => undefined };
-	const native = new NativeExplorer((type, payload) => messages.push({ type, payload }), {
+	const native = new NativeExplorer((type, payload) => {
+		messages.push({ type, payload });
+		if (type === 'navigatorSnapshot') { return acknowledge?.(); }
+		return undefined;
+	}, {
 		createInstance: (ctor: unknown) => {
 			if (ctor === FilesFilter) { return { filter: () => true, onDidChange: Event.None, dispose() {} }; }
 			if (ctor === FileSorter) { return { compare: () => 0 }; }
@@ -146,5 +150,25 @@ test('native Explorer cancellation clears upstream editable state and the tempor
 		assert.equal(accepted, false);
 		assert.equal(service.isEditable(undefined), false);
 		assert.equal(f.folder.children.has(pending.name), false);
+	} finally { f.native.dispose(); f.themeChange.dispose(); }
+});
+
+
+test('native navigator waits for AppKit and coalesces publications to the latest state', async () => {
+	const acknowledgements: DeferredPromise<void>[] = [];
+	const f = fixture(() => { const ack = new DeferredPromise<void>(); acknowledgements.push(ack); return ack.p; });
+	try {
+		await f.native.start();
+		const first = f.messages.length;
+		f.native.dispatch({ eventType: 'select-container', id: 'workbench.view.search' });
+		f.native.dispatch({ eventType: 'select-container', id: 'workbench.view.scm' });
+		for (let i = 0; i < 30; i++) { f.native.changesUpdated(); }
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(f.messages.length, first, 'no result update may overtake the native acknowledgement');
+		await acknowledgements[0].complete();
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(f.messages.length, first + 1);
+		assert.equal(f.messages.at(-1)!.payload.activeContainerId, 'workbench.view.scm');
+		await acknowledgements[1].complete();
 	} finally { f.native.dispose(); f.themeChange.dispose(); }
 });

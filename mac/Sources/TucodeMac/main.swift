@@ -163,12 +163,6 @@ private final class NavigatorContainerItem: NSCollectionViewItem {
 	}
 }
 
-/// Stable AppKit object identity for one model-owned Explorer row.
-private final class NavigatorOutlineItem: NSObject {
-	let id: String
-	init(_ id: String) { self.id = id }
-}
-
 /// AppKit owns row hit testing, keyboard navigation and selection. Only semantic operations cross
 /// the bridge; asynchronously resolved children still come from the shared Explorer model.
 private final class NativeOutlineView: NSOutlineView {
@@ -235,12 +229,11 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 	private var navigatorOutline: NativeOutlineView!
 	private var navigatorContainerDataSource: NSCollectionViewDiffableDataSource<String, String>!
 	private var navigatorSectionDataSource: NSTableViewDiffableDataSource<String, String>!
+	private let navigatorDecoder = NativeNavigatorDecoder()
 	private var navigatorSnapshot: NavigatorSnapshot?
 	private var navigatorContainers: [String: NavigatorContainer] = [:]
 	private var navigatorSections: [String: NavigatorSection] = [:]
-	private var navigatorOutlineRows: [String: OutlineRow] = [:]
-	private var navigatorOutlineItems: [String: NavigatorOutlineItem] = [:]
-	private var navigatorOutlineChildren: [String: [NavigatorOutlineItem]] = [:]
+	private let navigatorOutlineData = NativeOutlineData()
 	private var applyingNavigatorSnapshot = false
 	private var editorAreaView: EditorAreaView!
 	private var webAssetHandler: WebAssetSchemeHandler!
@@ -498,7 +491,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		navigatorOutline = NativeOutlineView()
 		navigatorOutline.headerView = nil
 		navigatorOutline.delegate = self
-		navigatorOutline.dataSource = self
+		navigatorOutline.dataSource = navigatorOutlineData
 		navigatorOutline.style = .sourceList
 		navigatorOutline.backgroundColor = .clear
 		navigatorOutline.usesAlternatingRowBackgroundColors = false
@@ -782,6 +775,20 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 				replyHandler(NSNull(), nil)
 				return
 			}
+			if request["cmd"] as? String == "mac_apply_navigator" {
+				guard let args = request["args"] as? [String: Any], let text = args["snapshot"] as? String else {
+					replyHandler(nil, "Invalid navigator update"); return
+				}
+				navigatorDecoder.decode(text) { [weak self] result in
+					switch result {
+					case .success(let prepared):
+						self?.apply(prepared)
+						replyHandler(NSNull(), nil)
+					case .failure(let error): replyHandler(nil, error.localizedDescription)
+					}
+				}
+				return
+			}
 			if request["cmd"] as? String == "mac_open_folders" {
 				do {
 					guard let args = request["args"] as? [String: Any], let paths = args["folders"] as? [String],
@@ -832,8 +839,6 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			quickInputField.apply(update)
 		case .quickInputHidden:
 			quickInputField.hideSuggestions()
-		case .navigatorSnapshot(let snapshot):
-			apply(snapshot)
 		case .editorTabsPaint(let paint):
 			editorAreaView.apply(paint)
 		case .mainMenu(let paint):
@@ -974,7 +979,8 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 	}
 
 
-	private func apply(_ snapshot: NavigatorSnapshot) {
+	private func apply(_ prepared: PreparedNavigatorSnapshot) {
+		let snapshot = prepared.snapshot
 		let containerChanged = navigatorSnapshot?.activeContainerId != snapshot.activeContainerId
 		let filterWasActive = !containerChanged && navigatorSnapshot?.filter?.visible == true
 		let focusedView = window.firstResponder as? NSView
@@ -985,24 +991,15 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		let previousFocusedSectionId = navigatorSnapshot?.focusedSectionId
 		let previousContainers = navigatorContainers
 		let previousSections = navigatorSections
-		let previousOutlineRows = navigatorOutlineRows
-		let previousFocusedOutlineId = previousSnapshot?.outlineRows.first(where: { $0.focused })?.id
-			?? previousSnapshot?.outlineRows.first(where: { $0.selected })?.id
-		let focusedOutlineId = snapshot.outlineRows.first(where: { $0.focused })?.id
-			?? snapshot.outlineRows.first(where: { $0.selected })?.id
+		let previousFocusedOutlineId = previousSnapshot?.outline.focusedId
+		let focusedOutlineId = snapshot.outline.focusedId
 		let shouldRevealOutlineFocus = focusedOutlineId != nil
 			&& focusedOutlineId != previousFocusedOutlineId
 		let preservesOutlineViewport = previousActiveContainerId == snapshot.activeContainerId
 			&& previousFocusedSectionId == snapshot.focusedSectionId
 		let outlineOrigin = preservesOutlineViewport
 			? navigatorOutline.enclosingScrollView?.contentView.bounds.origin : nil
-		let structureChanged = previousActiveContainerId != snapshot.activeContainerId
-			|| previousFocusedSectionId != snapshot.focusedSectionId
-			|| previousSnapshot?.outlineRows.count != snapshot.outlineRows.count
-			|| zip(previousSnapshot?.outlineRows ?? [], snapshot.outlineRows).contains { previous, current in
-				previous.id != current.id || previous.parentId != current.parentId
-					|| previous.expandable != current.expandable
-			}
+
 		navigatorSnapshot = snapshot
 		applyingNavigatorSnapshot = true
 		if containerChanged {
@@ -1054,33 +1051,9 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		navigatorSectionScroll.isHidden = !showsSectionHeaders
 
 		select(snapshot.focusedSectionId, in: navigatorSectionTable, dataSource: navigatorSectionDataSource)
-		navigatorOutlineRows = Dictionary(uniqueKeysWithValues: snapshot.outlineRows.map { ($0.id, $0) })
-		let previousOutlineItems = navigatorOutlineItems
-		navigatorOutlineItems = Dictionary(uniqueKeysWithValues: snapshot.outlineRows.map {
-			($0.id, previousOutlineItems[$0.id] ?? NavigatorOutlineItem($0.id))
-		})
-		navigatorOutlineChildren = Dictionary(grouping: snapshot.outlineRows, by: { $0.parentId ?? "" })
-			.mapValues { rows in rows.compactMap { navigatorOutlineItems[$0.id] } }
-		if structureChanged {
-			navigatorOutline.reloadData()
-		} else {
-			for row in snapshot.outlineRows where previousOutlineRows[row.id] != row {
-				if let item = navigatorOutlineItems[row.id] {
-					navigatorOutline.reloadItem(item, reloadChildren: false)
-				}
-			}
-		}
-		for row in snapshot.outlineRows {
-			guard let item = navigatorOutlineItems[row.id] else { continue }
-			if row.expanded && !navigatorOutline.isItemExpanded(item) {
-				navigatorOutline.expandItem(item)
-			} else if !row.expanded && navigatorOutline.isItemExpanded(item) {
-				navigatorOutline.collapseItem(item)
-			}
-		}
-		if let focused = snapshot.outlineRows.first(where: \.focused)
-			?? snapshot.outlineRows.first(where: \.selected),
-			let item = navigatorOutlineItems[focused.id] {
+		let update = snapshot.outline
+		navigatorOutlineData.apply(prepared, to: navigatorOutline)
+		if let focusedOutlineId, let item = navigatorOutlineData.items[focusedOutlineId] {
 			let row = navigatorOutline.row(forItem: item)
 			if row >= 0 {
 				navigatorOutline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -1089,7 +1062,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		} else {
 			navigatorOutline.deselectAll(nil)
 		}
-		if !shouldRevealOutlineFocus, let outlineOrigin,
+		if !shouldRevealOutlineFocus, (!update.rows.isEmpty || !prepared.differences.isEmpty), let outlineOrigin,
 			let scrollView = navigatorOutline.enclosingScrollView {
 			navigatorOutline.layoutSubtreeIfNeeded()
 			scrollView.contentView.scroll(to: outlineOrigin)
@@ -1103,20 +1076,8 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		(item as? NavigatorOutlineItem)?.id
 	}
 
-	func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-		navigatorOutlineChildren[outlineId(item) ?? ""]?.count ?? 0
-	}
-
-	func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-		navigatorOutlineChildren[outlineId(item) ?? ""]![index]
-	}
-
-	func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-		outlineId(item).flatMap { navigatorOutlineRows[$0]?.expandable } ?? false
-	}
-
 	func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-		guard let id = outlineId(item), let record = navigatorOutlineRows[id] else { return nil }
+		guard let id = outlineId(item), let record = navigatorOutlineData.rows[id] else { return nil }
 		let identifier = NSUserInterfaceItemIdentifier("outline-row")
 		let cell = outlineView.makeView(withIdentifier: identifier, owner: self) as? NavigatorOutlineCell ?? {
 			let value = NavigatorOutlineCell()

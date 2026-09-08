@@ -2,6 +2,7 @@
  * AppKit Explorer presentation over VS Code's filesystem model, filter, sorter and compact tree.
  * No browser view is mounted. AppKit owns gestures/selection; this tree owns derived row ancestry.
  *--------------------------------------------------------------------------------------------*/
+import { Throttler } from '../vs/base/common/async.js';
 import { Disposable } from '../vs/base/common/lifecycle.js';
 import { CancellationError } from '../vs/base/common/errors.js';
 import { URI } from '../vs/base/common/uri.js';
@@ -57,6 +58,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 	private readonly compression = new ExplorerCompressionDelegate();
 	private refreshing: Promise<void> = Promise.resolve();
 	private publishQueued = false;
+	private readonly publications = this._register(new Throttler());
 	private readonly pendingToggles = new Map<ExplorerItem, object>();
 	private changes: NativeSCM | undefined;
 	private search: NativeSearch | undefined;
@@ -71,7 +73,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 	changesUpdated(): void { this.schedulePublish(); }
 
 	constructor(
-		private readonly send: (type: string, payload: unknown) => void,
+		private readonly send: (type: string, payload: unknown) => unknown,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IExplorerService private readonly explorer: IExplorerService,
 		@IConfigurationService private readonly configuration: IConfigurationService,
@@ -338,6 +340,14 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 
 	private publish(): void {
 		if (this._store.isDisposed) { return; }
+		// Use the upstream throttler across the actual native acknowledgement. The
+		// queued factory reads current state only after AppKit finished the last update.
+		void this.publications.queue(() => this.publishCurrent()).catch(error => {
+			if (!this._store.isDisposed) { this.send('error', { message: String(error) }); }
+		});
+	}
+	private async publishCurrent(): Promise<void> {
+		if (this._store.isDisposed) { return; }
 		const changes = this.activeContainerId === 'workbench.view.scm' ? this.changes?.snapshot : undefined;
 		const search = this.activeContainerId === 'workbench.view.search' ? this.search?.snapshot : undefined;
 		const outlineRows = this.activeContainerId === 'workbench.view.explorer'
@@ -367,7 +377,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 				decoration?.dispose();
 				return [row];
 			}) : changes?.outlineRows ?? search?.outlineRows ?? [];
-		this.send('navigatorSnapshot', {
+		await this.send('navigatorSnapshot', {
 			generation: this.generation++, activeContainerId: this.activeContainerId,
 			focusedSectionId: this.focusedSectionId, containers: this.containers,
 			sections: this.sectionsFor(this.activeContainerId), outlineRows,
