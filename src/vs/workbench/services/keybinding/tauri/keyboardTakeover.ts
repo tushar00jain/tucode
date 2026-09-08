@@ -169,6 +169,7 @@ const clipboardCommands = new Set([
 	'filesExplorer.paste',
 	'filesExplorer.cancelCut',
 	'copyFilePath',
+	'editor.action.copyFilePathAndLineNumber',
 	'copyRelativeFilePath',
 	'workbench.action.files.copyPathOfActiveFile',
 	'search.action.copyMatch',

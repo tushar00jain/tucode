@@ -297,6 +297,7 @@ import './vs/workbench/contrib/files/browser/files.contribution.js';
 // Explorer
 import './vs/workbench/contrib/files/browser/explorerViewlet.js';
 import './vs/workbench/contrib/files/browser/fileActions.contribution.js';
+import './vs/workbench/contrib/files/browser/copyFileLocation.js';
 
 // Search
 import './vs/workbench/contrib/search/browser/search.contribution.js';
