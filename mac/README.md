@@ -18,6 +18,29 @@ Foreground tests use the existing `Automation Signing` identity in `~/Library/Ke
 Set `TUCODE_MAC_ONLY_TESTING` to an XCUITest identifier to select a workflow. There is no background Mac UI test path.
 Visual captures require Screen Recording/Accessibility access and go under `.build/macos/visual-comparisons/`.
 
+## Measure CPU and memory
+
+With Tucode running, use the local Python 3 interpreter (no packages to install):
+
+```sh
+python3 mac/measure-usage.py
+python3 mac/measure-usage.py --seconds 3 --json /tmp/tucode-usage.json
+```
+
+This takes two CPU counter readings two seconds apart by default, then one memory
+snapshot with macOS `footprint` (15-second timeout). It does not run a workload or
+continuously sample. CPU uses 100% for one logical core. Use `--pid PID` if multiple
+Tucode instances are running; run in a normal Terminal if a sandbox blocks process access.
+
+The script includes the app's descendants and XPC helpers attributed to it by macOS
+process responsibility, excluding other apps' WebKit processes. The responsibility
+API is private; unsupported systems fail explicitly instead of guessing ownership.
+Memory shows the group's footprint and private dirty resident memory separately.
+Footprint excludes clean shared framework pages and includes compressed/swapped
+memory; private dirty excludes shared regions and reclaimable memory. Reclaimable
+memory is reported separately. Compare the same workspace, windows and tabs after
+startup settles; a short snapshot is not a long-term peak measurement.
+
 ## Package for GitHub Releases
 
 ```sh
