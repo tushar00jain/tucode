@@ -75,6 +75,7 @@ import './vs/workbench/services/log/common/defaultLogLevels.js';
 import './vs/workbench/contrib/bulkEdit/browser/bulkEditService.js';
 import './vs/workbench/contrib/files/browser/files.contribution.js';
 import './vs/workbench/contrib/files/browser/fileActions.contribution.js';
+import './vs/workbench/contrib/files/browser/copyFileLocation.js';
 import './vs/workbench/contrib/scm/browser/scm.service.contribution.js';
 import './vs/workbench/contrib/scm/browser/scm.contribution.js';
 import './vs/workbench/contrib/search/browser/search.contribution.js';

@@ -994,6 +994,38 @@ final class EventLoopUITests: XCTestCase {
 		XCTAssertFalse(app.staticTexts["tucode.bootstrap.error"].exists)
 	}
 
+	func testCopyFileLocationShortcutAndContextMenu() throws {
+		let app = try launchWithPackageSwiftOpen()
+		let editor = app.textViews.firstMatch
+		XCTAssertTrue(waitUntilHittable(editor))
+		enterInsertMode(in: app, editor: editor)
+		let workspace = try XCTUnwrap(ProcessInfo.processInfo.environment["TUCODE_MAC_TEST_WORKSPACE"])
+		let file = URL(fileURLWithPath: workspace).appendingPathComponent("mac/Package.swift")
+		app.typeKey(.upArrow, modifierFlags: .command)
+		for line in 1...2 {
+			NSPasteboard.general.clearContents()
+			app.typeKey("s", modifierFlags: [.control, .command])
+			XCTAssertTrue(wait(for: NSPredicate { _, _ in
+				NSPasteboard.general.string(forType: .string) == "\(file.path):\(line)"
+			}, on: app, timeout: 3), "the shortcut must copy the current cursor line")
+			app.typeKey(.downArrow, modifierFlags: [])
+		}
+		// Right-click inside a full-file selection preserves the cursor at its end.
+		app.typeKey("a", modifierFlags: .command)
+		let lastLine = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n").count
+		NSPasteboard.general.clearContents()
+		editor.rightClick()
+		let copy = app.windows.firstMatch.menuItems.matching(NSPredicate(
+			format: "title BEGINSWITH %@", "Copy File Path and Line Number")).firstMatch
+		XCTAssertTrue(copy.waitForExistence(timeout: 3))
+		XCTAssertTrue(copy.isEnabled)
+		copy.click()
+		XCTAssertTrue(wait(for: NSPredicate { _, _ in
+			NSPasteboard.general.string(forType: .string) == "\(file.path):\(lastLine)"
+		}, on: app, timeout: 3), "the right-click action must use the same file-location command")
+		XCTAssertFalse(app.staticTexts["tucode.bootstrap.error"].exists)
+	}
+
 	func testNativeEditorContextMenu() throws {
 		let app = try launchWithPackageSwiftOpen()
 		let editor = app.textViews.firstMatch

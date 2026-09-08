@@ -67,6 +67,10 @@ const closure = bootClosure();
 
 describe('boot closure', () => {
 
+	it('leaves file-location copying unavailable until the terminal has a text clipboard', () => {
+		assert.ok(!closure.includes('src/vs/workbench/contrib/files/browser/copyFileLocation.ts'));
+	});
+
 	it('walks past the boot file into the tree it imports', () => {
 		// A guard on the walk itself rather than on the tree, and stated against the one number the
 		// walk cannot fake: the boot file's own relative imports. A closure the size of that list is
