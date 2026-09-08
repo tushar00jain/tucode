@@ -226,7 +226,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 	private var quickInputField: NativeQuickInputField!
 	private var quickInputToolbarItem: NSSearchToolbarItem!
 	private let quickInputToolbarIdentifier = NSToolbarItem.Identifier("com.tucode.quickInput")
-	private var navigatorContainerBar: NSVisualEffectView!
+	private var navigatorContainerBar: NSView!
 	private var navigatorContainerBarWidth: NSLayoutConstraint!
 	private var navigatorContainerCollection: NSCollectionView!
 	private var navigatorSectionTable: NSTableView!
@@ -469,10 +469,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		containerScroll.drawsBackground = false
 		containerScroll.translatesAutoresizingMaskIntoConstraints = false
 
-		navigatorContainerBar = NSVisualEffectView()
-		navigatorContainerBar.material = .headerView
-		navigatorContainerBar.blendingMode = .withinWindow
-		navigatorContainerBar.state = .active
+		navigatorContainerBar = NSView()
 		navigatorContainerBar.wantsLayer = true
 		navigatorContainerBar.layer?.cornerRadius = 15
 		navigatorContainerBar.layer?.borderWidth = 0.5
@@ -561,11 +558,12 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			guard let self else { return }
 			self.window.makeFirstResponder(self.navigatorOutline)
 		}
-		let sidebarContent = NSStackView(views: [navigatorSectionScroll,
+		let sidebarContent = NSStackView(views: [navigatorContainerBar, navigatorSectionScroll,
 			searchControls, outlineScroll, changesFilter])
 		sidebarContent.orientation = .vertical
 		sidebarContent.alignment = .centerX
 		sidebarContent.spacing = 0
+		sidebarContent.setCustomSpacing(8, after: navigatorContainerBar)
 		sidebarContent.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
 		sidebarContent.translatesAutoresizingMaskIntoConstraints = false
 		navigatorSectionScroll.widthAnchor.constraint(equalTo: sidebarContent.widthAnchor, constant: -16).isActive = true
@@ -581,13 +579,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 284, height: 720))
 		sidebarController.view = sidebar
 		let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
-		let selectorHeader = NSStackView(views: [navigatorContainerBar])
-		selectorHeader.orientation = .vertical
-		selectorHeader.alignment = .centerX
-		selectorHeader.spacing = 0
-		let selectorAccessory = NSSplitViewItemAccessoryViewController()
-		selectorAccessory.view = selectorHeader
-		sidebarItem.addTopAlignedAccessoryViewController(selectorAccessory)
+		// Share the sidebar background instead of drawing a separate accessory header.
 		sidebar.addSubview(sidebarContent)
 		NSLayoutConstraint.activate([
 			sidebarContent.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),

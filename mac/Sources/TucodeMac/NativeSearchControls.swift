@@ -38,7 +38,6 @@ final class NativeSearchControls: NSStackView, NSSearchFieldDelegate {
 		orientation = .vertical
 		alignment = .leading
 		spacing = 4
-		edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
 		translatesAutoresizingMaskIntoConstraints = false
 		let query = field("query", placeholder: "Search")
 		addArrangedSubview(query)
