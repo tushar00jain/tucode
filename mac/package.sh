@@ -58,6 +58,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web" \
 	"$APP/Contents/Frameworks" "$APP/Contents/Resources/app/resources"
 cp "$SWIFT_BUILD/$SWIFT_CONFIGURATION/TucodeMac" "$APP/Contents/MacOS/Tucode"
 cp "$SCRIPT_DIR/App/Info.plist" "$APP/Contents/Info.plist"
+/bin/sh "$SCRIPT_DIR/App/build-icon.sh" "$APP/Contents"
 cp -R "$REPOSITORY_ROOT/dist-mac/." "$APP/Contents/Resources/Web/"
 cp "$REPOSITORY_ROOT/src-tauri/target/$RUST_PROFILE/libtscode_mac.dylib" "$APP/Contents/Frameworks/"
 cp -R "$REPOSITORY_ROOT/resources/extensions" "$APP/Contents/Resources/app/resources/extensions"
