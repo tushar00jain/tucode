@@ -42,7 +42,7 @@ if (values['notary-keychain'] && !values['notary-profile']) {
 
 const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, '.build/macos-release');
-const app = resolve(output, 'Tucode.app');
+const app = resolve(output, 'Code.app');
 const executable = resolve(app, 'Contents/MacOS/Tucode');
 const library = resolve(app, 'Contents/Frameworks/libtscode_mac.dylib');
 

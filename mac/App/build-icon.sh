@@ -2,7 +2,7 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-CONTENTS=${1:?Usage: build-icon.sh /path/to/Tucode.app/Contents}
+CONTENTS=${1:?Usage: build-icon.sh /path/to/Code.app/Contents}
 WORK=$(mktemp -d "$CONTENTS/app-icon.XXXXXX")
 trap 'rm -rf "$WORK"' 0
 trap 'exit 1' HUP INT TERM

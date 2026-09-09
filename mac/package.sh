@@ -31,7 +31,7 @@ case "${1:-}" in
 	*) echo 'Usage: mac/package.sh [--release VERSION [BUILD_NUMBER]]' >&2; exit 1 ;;
 esac
 SWIFT_BUILD="$BUILD_ROOT/swiftpm"
-APP="$BUILD_ROOT/Tucode.app"
+APP="$BUILD_ROOT/Code.app"
 
 mkdir -p "$BUILD_ROOT/cache/clang"
 export CLANG_MODULE_CACHE_PATH="$BUILD_ROOT/cache/clang"

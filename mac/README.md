@@ -13,7 +13,7 @@ mac/test-foreground.sh                  # focused foreground XCUITests
 mac/capture-visual-comparison.sh navigator  # optional comparison with Xcode
 ```
 
-Quit an existing Tucode session before rebuilding or testing. The development app is at `.build/macos/Tucode.app`.
+Quit an existing Tucode session before rebuilding or testing. The macOS app is named Code; the development bundle is at `.build/macos/Code.app`.
 Edit `App/AppIcon.icon` in Icon Composer to change the application icon. Packaging compiles the icon document into macOS appearance assets and icon metadata; no PNG export is needed.
 Foreground tests use the existing `Automation Signing` identity in `~/Library/Keychains/Automation.keychain-db` and create their own fixtures.
 Set `TUCODE_MAC_ONLY_TESTING` to an XCUITest identifier to select a workflow. There is no background Mac UI test path.
@@ -49,7 +49,7 @@ startup settles; a short snapshot is not a long-term peak measurement.
 node mac/release.mjs --version 0.1.0
 
 # Copy the app after quitting Tucode; replaces the installed copy
-ditto .build/macos-release/Tucode.app /Applications/Tucode.app
+ditto .build/macos-release/Code.app /Applications/Code.app
 ```
 
 After committing the release changes and building that commit, publish separately (`gh` must be logged in):

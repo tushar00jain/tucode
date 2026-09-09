@@ -6,7 +6,7 @@ REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BUILD_ROOT="$REPOSITORY_ROOT/.build/macos"
 TOOL_SOURCE="$SCRIPT_DIR/Tools/VisualCompare.swift"
 TOOL="$BUILD_ROOT/tools/visual-compare"
-APP="$BUILD_ROOT/Tucode.app"
+APP="$BUILD_ROOT/Code.app"
 LABEL=${1:-navigator}
 WINDOW_X=${VISUAL_COMPARE_X:-40}
 WINDOW_Y=${VISUAL_COMPARE_Y:-40}

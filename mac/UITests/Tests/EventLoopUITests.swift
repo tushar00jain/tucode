@@ -1738,7 +1738,7 @@ final class EventLoopUITests: XCTestCase {
 
 	private func launchApp(arguments: [String] = [], repository: URL? = nil,
 		userDataDirectory: String? = nil) throws -> XCUIApplication {
-		let appURL = repositoryRoot.appendingPathComponent(".build/macos/Tucode.app")
+		let appURL = repositoryRoot.appendingPathComponent(".build/macos/Code.app")
 		XCTAssertTrue(FileManager.default.fileExists(atPath: appURL.path), "packaged production app is missing")
 
 		let app = XCUIApplication(url: appURL)

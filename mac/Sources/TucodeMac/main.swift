@@ -692,7 +692,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		let applicationItem = NSMenuItem()
 		mainMenu.addItem(applicationItem)
 		let applicationMenu = NSMenu()
-		let quit = NSMenuItem(title: "Quit tucode", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+		let quit = NSMenuItem(title: "Quit Code", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 		quit.keyEquivalentModifierMask = .command
 		applicationMenu.addItem(quit)
 		applicationItem.submenu = applicationMenu

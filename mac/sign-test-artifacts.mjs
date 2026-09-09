@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 const root = resolve(import.meta.dirname, '..');
 const identity = 'Automation Signing';
 const keychain = resolve(homedir(), 'Library/Keychains/Automation.keychain-db');
-const app = resolve(root, '.build/macos/Tucode.app');
+const app = resolve(root, '.build/macos/Code.app');
 const runner = resolve(root, '.build/xcui/DerivedData/Build/Products/Debug/TucodeMacUITests-Runner.app');
 const backendLibrary = resolve(app, 'Contents/Frameworks/libtscode_mac.dylib');
 const testBundle = resolve(runner, 'Contents/PlugIns/TucodeMacUITests.xctest');
@@ -38,4 +38,4 @@ for (const artifact of [backendLibrary, testBundle, app, runner]) {
 	}
 }
 
-console.log(`Signed Tucode.app and its XCUI runner with ${identity}.`);
+console.log(`Signed Code.app and its XCUI runner with ${identity}.`);

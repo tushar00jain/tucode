@@ -19,6 +19,7 @@
     {
       "layers" : [
         {
+          "glass" : false,
           "hidden" : false,
           "image-name" : "Frame-3.svg",
           "name" : "Frame-3"

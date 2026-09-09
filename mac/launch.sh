@@ -16,5 +16,5 @@ if /usr/bin/pgrep -x Tucode >/dev/null 2>&1; then
 fi
 
 "$SCRIPT_DIR/package.sh"
-exec /usr/bin/open -W "$REPOSITORY_ROOT/.build/macos/Tucode.app" \
+exec /usr/bin/open -W "$REPOSITORY_ROOT/.build/macos/Code.app" \
 	--args --repo-root "$TARGET_ROOT"
