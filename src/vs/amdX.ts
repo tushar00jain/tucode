@@ -9,6 +9,7 @@ import { IProductConfiguration } from './base/common/product.js';
 import { URI } from './base/common/uri.js';
 import { generateUuid } from './base/common/uuid.js';
 import onigWasmUrl from 'vscode-oniguruma/release/onig.wasm?url';
+import katexCssUrl from 'katex/dist/katex.min.css?url';
 
 declare const window: any;
 declare const document: any;
@@ -209,6 +210,7 @@ const cache = new Map<string, Promise<any>>();
  * outcome for a package this port does not depend on.
  */
 const bundledNodeModules: Record<string, () => Promise<unknown>> = {
+	'katex': () => import('katex').then(module => module.default),
 	'vscode-textmate': () => import('vscode-textmate'),
 	'vscode-oniguruma': () => import('vscode-oniguruma'),
 	'@vscode/iconv-lite-umd': () => import('@vscode/iconv-lite-umd'),
@@ -228,6 +230,7 @@ const bundledNodeModules: Record<string, () => Promise<unknown>> = {
 
 /** Assets those packages ship alongside their code, emitted by the bundler. */
 const bundledNodeModuleAssets: Record<string, string> = {
+	'katex/dist/katex.min.css': katexCssUrl,
 	'vscode-oniguruma/release/onig.wasm': onigWasmUrl
 };
 

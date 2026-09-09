@@ -3,8 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { $, append, Dimension, reset } from '../../../../base/browser/dom.js';
-import { IRenderedMarkdown } from '../../../../base/browser/markdownRenderer.js';
+import { $, append, Dimension, getWindow, reset } from '../../../../base/browser/dom.js';
+import { allowedMarkdownHtmlAttributes, allowedMarkdownHtmlTags, IRenderedMarkdown } from '../../../../base/browser/markdownRenderer.js';
 import { DomScrollableElement } from '../../../../base/browser/ui/scrollbar/scrollableElement.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -22,6 +22,7 @@ import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { MarkdownPreviewEditorInput } from './markdownPreviewEditorInput.js';
+import { MarkedKatexSupport } from '../browser/markedKatexSupport.js';
 // Upstream's preview stylesheet, copied by `copy-from-vscode.ps1` and confined to this pane by
 // the `@scope` rule that copy is wrapped in. Ours comes second, so it wins where the two meet.
 import '../../../../../extensions/markdown-language-features/media/markdown.css';
@@ -94,6 +95,11 @@ export class MarkdownPreviewEditor extends EditorPane {
 		this.inputDisposables.clear();
 		this.model = undefined;
 
+		await MarkedKatexSupport.loadExtension(getWindow(this.content));
+		if (token.isCancellationRequested) {
+			return;
+		}
+
 		const reference = await this.textModelService.createModelReference(input.documentResource);
 		if (token.isCancellationRequested) {
 			reference.dispose();
@@ -124,14 +130,18 @@ export class MarkdownPreviewEditor extends EditorPane {
 		}
 
 		// `baseUri` is what resolves relative links and images against the document's own
-		// directory: `renderMarkdown` resolves them with `resolvePath(dirname(baseUri), href)`
-		// and puts image sources through `FileAccess.uriToBrowserUri`, which carries this port's
-		// Tauri asset-protocol branch. Links reach `IOpenerService` through the renderer
-		// service's default action handler.
+		// directory. The renderer decodes URL paths before resolving them and sends image
+		// sources through `FileAccess.uriToBrowserUri` to the host's asset handler. Links
+		// reach `IOpenerService` through the renderer service's default action handler.
 		const markdown = new MarkdownString(this.model.getValue(), { supportHtml: true, supportThemeIcons: true, supportAlertSyntax: true });
 		markdown.baseUri = input.documentResource;
 
 		this.rendered.value = this.markdownRendererService.render(markdown, {
+			markedExtensions: [MarkedKatexSupport.getExtension(getWindow(this.content))!],
+			sanitizerConfig: MarkedKatexSupport.getSanitizerOptions({
+				allowedTags: allowedMarkdownHtmlTags,
+				allowedAttributes: allowedMarkdownHtmlAttributes
+			}),
 			asyncRenderCallback: () => this.scrollbar.scanDomNode()
 		}, this.content);
 

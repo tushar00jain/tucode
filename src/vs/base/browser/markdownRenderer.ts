@@ -14,7 +14,8 @@ import { parse } from '../common/marshalling.js';
 import { FileAccess, Schemas } from '../common/network.js';
 import { cloneAndChange } from '../common/objects.js';
 import { basename as pathBasename } from '../common/path.js';
-import { basename, dirname, resolvePath } from '../common/resources.js';
+import { basename } from '../common/resources.js';
+import { resolveMarkdownUri as resolveWithBaseUri } from '../common/markdownUri.js';
 import { escape } from '../common/strings.js';
 import { URI, UriComponents } from '../common/uri.js';
 import * as DOM from './dom.js';
@@ -512,7 +513,7 @@ function massageHref(markdown: IMarkdownString, href: string, isDomUri: boolean)
 		// and because of that special rewriting needs to be done
 		// so that the URI uses a protocol that's understood by
 		// browsers (like http or https)
-		return FileAccess.uriToBrowserUri(uri).toString(true);
+		return FileAccess.uriToBrowserUri(uri).toString();
 	}
 	if (!uri) {
 		return href;
@@ -536,19 +537,6 @@ function postProcessCodeBlockLanguageId(lang: string | undefined): string {
 		return parts[0];
 	}
 	return lang;
-}
-
-function resolveWithBaseUri(baseUri: URI, href: string): string {
-	const hasScheme = /^\w[\w\d+.-]*:/.test(href);
-	if (hasScheme) {
-		return href;
-	}
-
-	if (baseUri.path.endsWith('/')) {
-		return resolvePath(baseUri, href).toString();
-	} else {
-		return resolvePath(dirname(baseUri), href).toString();
-	}
 }
 
 type MdStrConfig = {

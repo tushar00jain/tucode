@@ -17,6 +17,7 @@ import { EditorOption } from '../../src/vs/editor/common/config/editorOptions.js
 import { isCodeEditor } from '../../src/vs/editor/browser/editorBrowser.js';
 import { NativeEditorTabs } from '../../src/editor/nativeEditorTabs.js';
 import { EditorsOrder, Verbosity } from '../../src/vs/workbench/common/editor.js';
+import { MarkdownPreviewEditorInput } from '../../src/vs/workbench/contrib/markdown/tauri/markdownPreviewEditorInput.js';
 
 function check(condition: unknown, message: string): asserts condition {
 	if (!condition) { throw new Error(`Mac frontend probe: ${message}`); }
@@ -152,5 +153,47 @@ async function checkBrowserAssets(instantiation: IInstantiationService): Promise
 		} finally { rendered.element.remove(); rendered.dispose(); }
 		const missing = await fetch(FileAccess.uriToBrowserUri(URI.joinPath(root, 'missing.png')).toString());
 		check(missing.status === 404, 'missing asset returns a resource error');
+		await checkMarkdownPreview(instantiation, root);
 	} finally { await files.del(root, { recursive: true }); }
+}
+
+async function checkMarkdownPreview(instantiation: IInstantiationService, root: URI): Promise<void> {
+	const [files, editors, groups] = instantiation.invokeFunction(a =>
+		[a.get(IFileService), a.get(IEditorService), a.get(IEditorGroupsService)] as const);
+	const resource = URI.joinPath(root, 'nested', 'math.md');
+	await files.createFolder(URI.joinPath(root, 'nested'));
+	await files.writeFile(resource, VSBuffer.fromString(String.raw`# Math and images
+
+![Markdown image](../logo%20%23%20%25%20caf%C3%A9.svg)
+<img src="../logo%20%23%20%25%20caf%C3%A9.svg?v=1" alt="HTML image">
+
+Inline $x^2$.
+
+$$
+\frac{1}{2}
+$$
+
+` + '`$literal$`'));
+	const input = new MarkdownPreviewEditorInput(resource);
+	try {
+		await editors.openEditor(input, { pinned: true });
+		const content = document.querySelector('.markdown-preview-content');
+		check(content, 'actual Markdown preview opens');
+		const images = content.querySelectorAll('img');
+		check(images.length === 2, 'Markdown and HTML image syntax survive rendering');
+		for (const image of images) {
+			await image.decode();
+			check(image.naturalWidth === 37, 'nested encoded images decode in the actual preview');
+		}
+		check(content.querySelectorAll('.katex').length === 2, 'vendored math extension renders inline and block math');
+		check(content.querySelector('.katex-display math'), 'sanitization preserves display math and accessible MathML');
+		check(content.querySelector('code')?.textContent === '$literal$', 'code spans retain literal dollar signs');
+		await waitUntil(() => [...document.fonts].some(font => font.family === 'KaTeX_Main'),
+			'bundled KaTeX stylesheet registers its fonts');
+		await document.fonts.load('16px KaTeX_Main');
+		check([...document.fonts].some(font => font.family === 'KaTeX_Main' && font.status === 'loaded'),
+			'bundled KaTeX stylesheet and fonts load in WebKit');
+	} finally {
+		await groups.activeGroup.closeEditor(input);
+	}
 }
