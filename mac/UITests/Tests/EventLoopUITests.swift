@@ -431,6 +431,18 @@ final class EventLoopUITests: XCTestCase {
 		let commit = app.staticTexts.matching(NSPredicate(format:
 			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItem:", "history update")).firstMatch
 		XCTAssertTrue(waitUntilHittable(commit), app.debugDescription)
+		app.buttons["tucode.history.repository"].click()
+		XCTAssertTrue(waitForQuickInput(app))
+		let repositories = app.tables["tucode.quickInput.results"]
+		let autoRepository = repositories.staticTexts["Auto"]
+		let namedRepository = repositories.staticTexts["history"]
+		XCTAssertTrue(waitUntilHittable(namedRepository))
+		XCTAssertLessThan(namedRepository.frame.minY - autoRepository.frame.minY, 65,
+			"An unnamed separator should be a compact divider between repository choices")
+		let repositoryScreenshot = XCTAttachment(screenshot: suggestionsPopover(app).screenshot())
+		repositoryScreenshot.name = "Compact repository picker"; repositoryScreenshot.lifetime = .keepAlways; add(repositoryScreenshot)
+		app.searchFields["tucode.quickInput.field"].typeKey(.escape, modifierFlags: [])
+		XCTAssertTrue(waitForQuickInput(app, open: false))
 		let branchCommit = app.staticTexts.matching(NSPredicate(format:
 			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItem:", "history branch")).firstMatch
 		let mergeCommit = app.staticTexts.matching(NSPredicate(format:

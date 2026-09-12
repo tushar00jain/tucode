@@ -217,7 +217,8 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 	func numberOfRows(in tableView: NSTableView) -> Int { snapshot?.rows.count ?? 0 }
 
 	func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-		snapshot?.rows[row].separator == true
+		guard let record = snapshot?.rows[row] else { return false }
+		return record.separator && !record.label.isEmpty
 	}
 
 	func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
@@ -225,7 +226,7 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 	}
 
 	private func rowHeight(_ row: QuickInputRow) -> CGFloat {
-		row.separator ? 24 : row.description?.isEmpty == false ? 44 : 28
+		row.separator ? (row.label.isEmpty ? 8 : 24) : row.description?.isEmpty == false ? 44 : 28
 	}
 
 	func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
@@ -235,6 +236,20 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 
 	func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
 		guard let record = snapshot?.rows[row] else { return nil }
+		if record.separator && record.label.isEmpty {
+			let cell = NSTableCellView()
+			let divider = NSBox(frame: NSRect(x: 0, y: 0, width: 100, height: 1))
+			divider.boxType = .separator
+			divider.translatesAutoresizingMaskIntoConstraints = false
+			cell.addSubview(divider)
+			NSLayoutConstraint.activate([
+				divider.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+				divider.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+				divider.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+				divider.heightAnchor.constraint(equalToConstant: 1)
+			])
+			return cell
+		}
 		let label = NSTextField(labelWithString: record.label)
 		label.font = record.separator ? .systemFont(ofSize: 11, weight: .semibold) : .systemFont(ofSize: 13)
 		label.textColor = record.separator ? .secondaryLabelColor : .labelColor
