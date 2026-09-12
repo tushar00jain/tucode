@@ -62,7 +62,7 @@ export function isSCMHistoryItemChangeViewModelTreeElement(element: unknown): el
 	return (element as SCMHistoryItemChangeViewModelTreeElement).type === 'historyItemChangeViewModel';
 }
 
-export function isSCMHistoryItemChangeNode(element: unknown): element is IResourceNode<ISCMHistoryItem, SCMHistoryItemChangeViewModelTreeElement> {
+export function isSCMHistoryItemChangeNode(element: unknown): element is IResourceNode<SCMHistoryItemChangeViewModelTreeElement, SCMHistoryItemViewModelTreeElement> {
 	return ResourceTree.isResourceNode(element) && isSCMHistoryItemViewModelTreeElement(element.context);
 }
 

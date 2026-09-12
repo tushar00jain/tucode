@@ -19,6 +19,7 @@
 
 ## Mac
 
-- Render dialog questions, details, validation feedback, and supported Quick Input flags; Swift currently drops them. Explicitly reject unsupported password and multi-select presentations.
+- Render dialog questions, details, validation feedback, and supported Quick Input flags; Swift currently drops them. Explicitly reject unsupported password presentations; native multi-select now supports checkboxes and explicit acceptance.
 - Implement resource clipboard operations before enabling Explorer Cut/Copy/Paste; opening a menu must not request WebKit clipboard permission.
+- Extend native graph details with upstream rich hover/avatar presentation and provider-contributed commit/reference menus.
 - Add the planned native terminal surface using the existing terminal services.

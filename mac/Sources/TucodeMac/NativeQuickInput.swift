@@ -94,8 +94,16 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 		popover.behavior = .applicationDefined
 		popover.animates = false
 		popover.delegate = self
-		outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+		outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
 			guard let self, self.popover.isShown else { return event }
+			if event.type == .keyDown {
+				if self.snapshot?.canSelectMany == true, event.characters == " ", self.stringValue.isEmpty,
+					self.currentEditor() === self.window?.firstResponder,
+					let index = self.snapshot?.rows.firstIndex(where: { $0.focused }) {
+					self.activateRow(index); return nil
+				}
+				return event
+			}
 			if event.window !== self.popover.contentViewController?.view.window,
 				!(event.window === self.window && self.bounds.contains(self.convert(event.locationInWindow, from: nil))) {
 				self.send("focusChanged", focused: false)
@@ -134,7 +142,7 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 		let opening = snapshot?.sessionId != next.sessionId
 		let rowsChanged = snapshot?.rows.elementsEqual(next.rows, by: { old, new in
 			old.id == new.id && old.separator == new.separator && old.label == new.label
-				&& old.description == new.description && old.detail == new.detail
+				&& old.description == new.description && old.detail == new.detail && old.selected == new.selected
 		}) != true
 		snapshot = next
 		applyingSnapshot = true
@@ -248,11 +256,20 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 		stack.translatesAutoresizingMaskIntoConstraints = false
 		cell.addSubview(stack)
 		NSLayoutConstraint.activate([
-			stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+			stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: snapshot?.canSelectMany == true && !record.separator ? 24 : 0),
 			stack.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
 			stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
 			label.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor)
 		])
+		if snapshot?.canSelectMany == true && !record.separator {
+			let check = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleSelection(_:)))
+			check.tag = row
+			check.state = record.selected == true ? .on : .off
+			check.setAccessibilityLabel(record.label)
+			check.translatesAutoresizingMaskIntoConstraints = false
+			cell.addSubview(check)
+			NSLayoutConstraint.activate([check.leadingAnchor.constraint(equalTo: cell.leadingAnchor), check.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+		}
 		cell.toolTip = record.detail
 		return cell
 	}
@@ -269,8 +286,11 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 
 	func activateRow(_ index: Int) {
 		guard let rows = snapshot?.rows, rows.indices.contains(index), !rows[index].separator else { return }
-		send("activate", id: rows[index].id)
+		if snapshot?.canSelectMany == true { send("select", id: rows[index].id, selected: rows[index].selected != true) }
+		else { send("activate", id: rows[index].id) }
 	}
+
+	@objc private func toggleSelection(_ sender: NSButton) { activateRow(sender.tag) }
 
 	@objc private func valueChanged() {
 		guard !applyingSnapshot else { return }
@@ -291,8 +311,8 @@ final class NativeQuickInputField: NSSearchField, NSSearchFieldDelegate,
 		return true
 	}
 
-	private func send(_ type: String, value: String? = nil, id: String? = nil, direction: String? = nil, focused: Bool? = nil) {
+	private func send(_ type: String, value: String? = nil, id: String? = nil, direction: String? = nil, focused: Bool? = nil, selected: Bool? = nil) {
 		guard let snapshot else { return }
-		onIntent?(QuickInputIntent(sessionId: snapshot.sessionId, eventType: type, value: value, id: id, direction: direction, focused: focused))
+		onIntent?(QuickInputIntent(selected: selected, sessionId: snapshot.sessionId, eventType: type, value: value, id: id, direction: direction, focused: focused))
 	}
 }

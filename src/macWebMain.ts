@@ -59,6 +59,7 @@ import './vs/workbench/services/history/browser/historyService.js';
 import './vs/workbench/services/workspaces/browser/workspacesService.js';
 import './vs/workbench/services/label/common/labelService.js';
 import './vs/workbench/services/views/browser/viewDescriptorService.js';
+import './vs/workbench/services/activity/browser/activityService.js';
 import './vs/workbench/services/notification/common/notificationService.js';
 import './vs/workbench/services/workingCopy/common/workingCopyService.js';
 import './vs/workbench/services/workingCopy/common/workingCopyFileService.js';
@@ -259,6 +260,10 @@ import { COLOR_THEME_DARK_INITIAL_COLORS, IWorkbenchThemeService, ThemeSettingDe
 import { IWorkbenchLayoutService } from './vs/workbench/services/layout/browser/layoutService.js';
 import { IHostService } from './vs/workbench/services/host/browser/host.js';
 import { NativeExplorer } from './editor/nativeExplorer.js';
+import { NativeSCMHistory } from './editor/nativeScmHistory.js';
+import './vs/workbench/contrib/multiDiffEditor/browser/multiDiffEditor.contribution.js';
+import { MultiDiffEditorResolverContribution } from './vs/workbench/contrib/multiDiffEditor/browser/multiDiffEditorInput.js';
+import { ScmMultiDiffSourceResolverContribution } from './vs/workbench/contrib/multiDiffEditor/browser/scmMultiDiffSourceResolver.js';
 import { NativeSCM } from './editor/nativeScm.js';
 import { NativeSearch } from './editor/nativeSearch.js';
 import { NativeMainMenu } from './editor/nativeMainMenu.js';
@@ -452,6 +457,9 @@ class MacEditorOnlyAdapter extends Disposable {
 		registerOpenEditorAPICommands();
 		this.navigator = this._register(instantiationService.createInstance(NativeExplorer, publishFiles));
 		this._register(themes.onDidFileIconThemeChange(() => { this.tabs.refresh(); this.navigator.changesUpdated(); }));
+		this._register(instantiationService.createInstance(MultiDiffEditorResolverContribution));
+		this._register(instantiationService.createInstance(ScmMultiDiffSourceResolverContribution));
+		this.navigator.attachHistory(this._register(instantiationService.createInstance(NativeSCMHistory, () => this.navigator.changesUpdated())));
 		this.navigator.attachChanges(this._register(instantiationService.createInstance(NativeSCM, () => this.navigator.changesUpdated())));
 		this.navigator.attachSearch(this._register(instantiationService.createInstance(NativeSearch, () => this.navigator.changesUpdated())));
 		this._register(instantiationService.createInstance(TauriGitContribution));
@@ -516,6 +524,7 @@ class MacEditorOnlyAdapter extends Disposable {
 		if (Array.isArray(payload.selection) && payload.selection.length === 2 && payload.selection.every(Number.isInteger)) { event.selection = payload.selection; }
 		if (typeof payload.id === 'string') { event.id = payload.id; }
 		if (typeof payload.focused === 'boolean') { event.focused = payload.focused; }
+		if (typeof payload.selected === 'boolean') { event.selected = payload.selected; }
 		if (payload.direction === 'previous' || payload.direction === 'next') { event.direction = payload.direction; }
 		return projection.dispatch(Object.freeze(event));
 	}

@@ -51,7 +51,7 @@ MAC: WebKit content process                        Native Mac app process
 | Text / diff editor | VS Code models -> native presentation controllers -> ANSI | Actual VS Code browser editor panes -> HTML |
 | Editor tabs | VS Code group state/events -> ANSI | VS Code group state/events -> serialized tabs -> AppKit |
 | Changes / SCM | VS Code view/controller/tree/row renderers -> DOM shim -> ANSI | VS Code SCM models/tree adapters -> serialized rows -> AppKit |
-| SCM history graph | VS Code history view model -> native ANSI graph | Not implemented |
+| SCM history graph | VS Code history view model -> native ANSI graph | VS Code history model/lazy tree + shared graph geometry -> AppKit outline |
 | Sapling smartlog | Sapling graph data/text renderer -> ANSI | Not implemented |
 | Search | VS Code view/widget/controller/tree + shared result filter -> DOM shim -> ANSI | VS Code Search model/QueryBuilder + shared refresh/query controllers + lazy branches -> changed rows -> AppKit |
 | Quick Input / Quick Open | Upstream QuickInputService/controller/list and providers -> DOM shim -> ANSI | Native IQuickInputService adapter + upstream providers -> Apple bridge -> AppKit |
@@ -68,6 +68,10 @@ Native navigator updates send changed records and child lists. VS Code's `Thrott
 AppKit's acknowledgement and coalesces pending publications before reading the next state.
 Swift decodes the JSON and computes standard `CollectionDifference` values on a serial queue;
 `NSOutlineView` applies batched insertions/removals and manages cell reuse, scrolling, and layout.
+Graph is a separate native navigator beside Source Control. History fetches begin when it is shown; commit changes are fetched on expansion. Shared
+TypeScript geometry supplies native path commands and colors, and a separate unindented AppKit
+column continues lanes through changed-file rows. Graph reuses native Quick Input for repository
+and reference selection, and upstream single-file and Multi Diff editor inputs for historical changes.
 Control-only changes do not resend result rows. Search uses the same refresh controller as the
 browser/terminal view, and collapsed branches defer child enumeration until expansion.
 

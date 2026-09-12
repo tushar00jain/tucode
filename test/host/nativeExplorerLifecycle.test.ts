@@ -76,11 +76,36 @@ test('native navigator has no Sapling placeholder or selectable Sapling sections
 	try {
 		await f.native.start();
 		assert.deepEqual(f.messages.at(-1)!.payload.containers.map((container: { id: string }) => container.id),
-			['workbench.view.explorer', 'workbench.view.search', 'workbench.view.scm']);
+			['workbench.view.explorer', 'workbench.view.search', 'workbench.view.scm', 'workbench.view.scm.history']);
 		const count = f.messages.length;
 		assert.equal(f.native.dispatch({ eventType: 'select-container', id: 'workbench.view.sapling' }), false);
 		assert.equal(f.native.dispatch({ eventType: 'focus-section', id: 'workbench.view.sapling.commitInfo' }), false);
 		assert.equal(f.messages.length, count);
+	} finally { f.native.dispose(); f.themeChange.dispose(); }
+});
+
+test('Graph is an independent navigator and never uses the Changes section/filter path', async () => {
+	const f = fixture(), visible: boolean[] = [], events: string[] = [];
+	try {
+		f.native.attachHistory({ onError: Event.None, setVisible: (value: boolean) => visible.push(value),
+			dispatch: (event: { eventType: string }) => { if (event.eventType === 'outline-open') { events.push(event.eventType); return true; } return false; },
+			snapshot: { outlineRows: [], history: { repository: 'Repo' } } } as any);
+		await f.native.start();
+		f.native.dispatch({ eventType: 'select-container', id: 'workbench.view.scm' });
+		await new Promise(resolve => setTimeout(resolve, 0));
+		assert.deepEqual(f.messages.at(-1)!.payload.sections.map((section: { title: string }) => section.title), ['Changes']);
+		f.native.dispatch({ eventType: 'select-container', id: 'workbench.view.scm.history' });
+		await new Promise(resolve => setTimeout(resolve, 0));
+		const graph = f.messages.at(-1)!.payload;
+		assert.equal(graph.activeContainerId, 'workbench.view.scm.history');
+		assert.deepEqual(graph.sections.map((section: { title: string }) => section.title), ['Graph']);
+		assert.equal(graph.filter, undefined);
+		assert.equal(graph.history.repository, 'Repo');
+		assert.equal(visible.at(-1), true);
+		assert.equal(f.native.dispatch({ eventType: 'outline-open', id: 'commit' }), true);
+		assert.deepEqual(events, ['outline-open']);
+		f.native.dispatch({ eventType: 'select-container', id: 'workbench.view.explorer' });
+		assert.equal(visible.at(-1), false);
 	} finally { f.native.dispose(); f.themeChange.dispose(); }
 });
 

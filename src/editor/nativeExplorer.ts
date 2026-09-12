@@ -21,6 +21,7 @@ import { ExplorerItem } from '../vs/workbench/contrib/files/common/explorerModel
 import { VIEW_ID } from '../vs/workbench/contrib/files/common/files.js';
 import { IDecorationsService } from '../vs/workbench/services/decorations/common/decorations.js';
 import { IEditorService } from '../vs/workbench/services/editor/common/editorService.js';
+import { NativeSCMHistory } from './nativeScmHistory.js';
 import { NativeSCM } from './nativeScm.js';
 import { NativeSearch } from './nativeSearch.js';
 import { NativeFilterBox } from './nativeFilterBox.js';
@@ -62,6 +63,11 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 	private readonly pendingToggles = new Map<ExplorerItem, object>();
 	private changes: NativeSCM | undefined;
 	private search: NativeSearch | undefined;
+	private history: NativeSCMHistory | undefined;
+	attachHistory(history: NativeSCMHistory): void {
+		this.history = history;
+		this._register(history.onError(error => this.send('error', { message: String(error) })));
+	}
 	attachSearch(search: NativeSearch): void {
 		this.search = search;
 		this._register(search.onError(error => this.send('error', { message: error instanceof Error ? error.message : String(error) })));
@@ -195,6 +201,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 	dispatch(payload: any): boolean {
 		if (this._store.isDisposed) { return false; }
 		if (this.activeContainerId === 'workbench.view.scm' && this.changes?.dispatch(payload)) { return true; }
+		if (this.activeContainerId === 'workbench.view.scm.history' && this.history?.dispatch(payload)) { return true; }
 		if (this.activeContainerId === 'workbench.view.search' && this.search?.dispatch(payload)) { return true; }
 		if (this.activeContainerId === 'workbench.view.explorer' && this.root.input.dispatch(this.root, 'explorer', payload)) { return true; }
 		if (payload?.eventType === 'outline-focus-state' && typeof payload.focused === 'boolean') {
@@ -212,6 +219,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 			}
 			this.activeContainerId = payload.id;
 			this.focusedSectionId = this.sectionsFor(payload.id)[0]?.id;
+			this.history?.setVisible(payload.id === 'workbench.view.scm.history');
 			this.publish();
 			return true;
 		}
@@ -319,7 +327,8 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 	private readonly containers = Object.freeze([
 		{ id: 'workbench.view.explorer', title: 'Explorer', icon: { kind: 'theme', id: 'files' } },
 		{ id: 'workbench.view.search', title: 'Search', icon: { kind: 'theme', id: 'search' } },
-		{ id: 'workbench.view.scm', title: 'Source Control', icon: { kind: 'theme', id: 'source-control' } }
+		{ id: 'workbench.view.scm', title: 'Source Control', icon: { kind: 'theme', id: 'source-control' } },
+		{ id: 'workbench.view.scm.history', title: 'Graph', icon: { kind: 'theme', id: 'git-commit' } }
 	]);
 
 	private sectionsFor(containerId: string): readonly { id: string; title: string; order: number; expanded: boolean }[] {
@@ -327,6 +336,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 			case 'workbench.view.explorer': return [{ id: 'workbench.explorer.fileView', title: 'Folders', order: 0, expanded: true }];
 			case 'workbench.view.search': return [{ id: 'workbench.view.search', title: 'Search', order: 0, expanded: true }];
 			case 'workbench.view.scm': return [{ id: 'workbench.scm', title: 'Changes', order: 0, expanded: true }];
+			case 'workbench.view.scm.history': return [{ id: 'workbench.scm.history', title: 'Graph', order: 0, expanded: true }];
 			default: return [];
 		}
 	}
@@ -348,6 +358,7 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 	}
 	private async publishCurrent(): Promise<void> {
 		if (this._store.isDisposed) { return; }
+		const history = this.activeContainerId === 'workbench.view.scm.history' ? this.history?.snapshot : undefined;
 		const changes = this.activeContainerId === 'workbench.view.scm' ? this.changes?.snapshot : undefined;
 		const search = this.activeContainerId === 'workbench.view.search' ? this.search?.snapshot : undefined;
 		const outlineRows = this.activeContainerId === 'workbench.view.explorer'
@@ -376,13 +387,13 @@ export class NativeExplorer extends Disposable implements IExplorerView {
 				};
 				decoration?.dispose();
 				return [row];
-			}) : changes?.outlineRows ?? search?.outlineRows ?? [];
+			}) : history?.outlineRows ?? changes?.outlineRows ?? search?.outlineRows ?? [];
 		await this.send('navigatorSnapshot', {
 			generation: this.generation++, activeContainerId: this.activeContainerId,
 			focusedSectionId: this.focusedSectionId, containers: this.containers,
 			sections: this.sectionsFor(this.activeContainerId), outlineRows,
 			filter: this.activeContainerId === 'workbench.view.explorer' ? this.root.input.snapshot : changes?.filter ?? search?.filter,
-			search: search?.search
+			search: search?.search, history: history?.history
 		});
 	}
 }

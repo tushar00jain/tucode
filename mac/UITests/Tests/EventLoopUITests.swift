@@ -420,6 +420,118 @@ final class EventLoopUITests: XCTestCase {
 		XCTAssertTrue(tab.waitForExistence(timeout: 5))
 	}
 
+	func testNativeHistoryExpandsCommitAndOpensRevision() throws {
+		continueAfterFailure = false
+		let fixturePath = try XCTUnwrap(ProcessInfo.processInfo.environment["TUCODE_MAC_TEST_WORKSPACE"])
+		let app = try launchApp(repository: URL(fileURLWithPath: fixturePath).appendingPathComponent("history"))
+		let graphNavigator = app.buttons["tucode.navigator.container.workbench.view.scm.history"]
+		XCTAssertTrue(waitUntilHittable(graphNavigator), app.debugDescription); graphNavigator.click()
+		XCTAssertFalse(app.staticTexts["tucode.navigator.section.workbench.scm.history"].isHittable,
+			"Graph belongs in its own navigator without a section switcher")
+		let commit = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItem:", "history update")).firstMatch
+		XCTAssertTrue(waitUntilHittable(commit), app.debugDescription)
+		let branchCommit = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItem:", "history branch")).firstMatch
+		let mergeCommit = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItem:", "history merge")).firstMatch
+		XCTAssertTrue(waitUntilHittable(branchCommit), "The divergent branch must appear in the graph")
+		XCTAssertTrue(waitUntilHittable(mergeCommit), "The two-parent merge must appear in the graph")
+		let outline = app.outlines["tucode.navigator.outline"]
+		XCTAssertEqual(outline.disclosureTriangles.count, 0,
+			"VS Code hides disclosure arrows on commit rows; clicking the row still expands files")
+		let seedCommit = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItem:", "history seed")).firstMatch
+		XCTAssertTrue(waitUntilHittable(seedCommit))
+		XCTAssertEqual(mergeCommit.frame.minX - seedCommit.frame.minX, 11, accuracy: 1,
+			"Labels must follow each row's own graph width, with 11 points per lane")
+		XCTAssertLessThanOrEqual(mergeCommit.frame.minX - outline.tableColumns["history-graph"].frame.minX, 45,
+			"The two-lane graph must not reserve a hidden disclosure or icon gap before its label")
+		let graphTextX = mergeCommit.frame.minX
+		outline.scroll(byDeltaX: 220, deltaY: 0)
+		XCTAssertEqual(mergeCommit.frame.minX, graphTextX, accuracy: 1, "Graph must not pan horizontally")
+		outline.scroll(byDeltaX: -220, deltaY: 0)
+		XCTAssertEqual(mergeCommit.frame.minX, graphTextX, accuracy: 1, "Graph must not pan horizontally in either direction")
+		let file = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItemChange:", "revision.txt")).firstMatch
+		XCTAssertFalse(file.exists, "Commit files should start collapsed")
+		commit.click()
+		XCTAssertTrue(waitUntilHittable(file), "Clicking the commit must expand its changed files")
+		commit.typeKey(.leftArrow, modifierFlags: [])
+		XCTAssertTrue(wait(for: NSPredicate(format: "exists == false"), on: file),
+			"Hiding a commit's disclosure arrow must preserve keyboard collapse")
+		commit.typeKey(.rightArrow, modifierFlags: [])
+		XCTAssertTrue(waitUntilHittable(file), "Right Arrow must still expand a commit's files")
+		branchCommit.click()
+		let branchFile = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItemChange:", "branch.txt")).firstMatch
+		XCTAssertTrue(waitUntilHittable(branchFile), "The branch commit must expand its own changed file")
+		XCTAssertTrue(file.isHittable, "Expanding a second branch must preserve the first commit's children")
+		XCTAssertLessThanOrEqual(file.frame.minX - commit.frame.minX, 40,
+			"Changed files should keep only native disclosure/icon spacing beside their commit")
+		app.buttons["tucode.history.mode"].click()
+		let folder = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItemChangeFolder:", "branch-dir/inside")).firstMatch
+		let nestedFile = app.staticTexts.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND value BEGINSWITH %@", "tucode.navigator.outline.row.historyItemChange:", "nested.txt")).firstMatch
+		XCTAssertTrue(waitUntilHittable(folder), "Tree mode must retain compressed folders")
+		XCTAssertTrue(waitUntilHittable(nestedFile))
+		XCTAssertEqual(nestedFile.frame.minX - branchFile.frame.minX, 14, accuracy: 1,
+			"Nested files should add only one native indentation level")
+		let folderArrow = outline.outlineRows.containing(NSPredicate(format: "identifier == %@", folder.identifier)).firstMatch.disclosureTriangles.firstMatch
+		XCTAssertTrue(waitUntilHittable(folderArrow))
+		folderArrow.click()
+		XCTAssertTrue(wait(for: NSPredicate(format: "exists == false"), on: nestedFile))
+		folder.click()
+		XCTAssertTrue(waitUntilHittable(nestedFile), "Folder disclosure must still expand after tightening graph spacing")
+		let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+		screenshot.name = "Native graph branching and merge with expanded commits"; screenshot.lifetime = .keepAlways; add(screenshot)
+		branchFile.click()
+		let branchText = app.textViews.matching(NSPredicate(format:
+			"value CONTAINS %@ OR label CONTAINS %@", "branch-content", "branch-content")).firstMatch
+		XCTAssertTrue(branchText.waitForExistence(timeout: 10), "The branch file must open its committed contents")
+		file.click()
+		let diffTab = app.buttons.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND label CONTAINS %@", "tucode.editor.tab.", "revision.txt")).firstMatch
+		XCTAssertTrue(waitUntilHittable(diffTab), "A changed file must open its historical editor")
+		diffTab.click()
+		let diffScreenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+		diffScreenshot.name = "Native graph historical diff"; diffScreenshot.lifetime = .keepAlways; add(diffScreenshot)
+		let historicalText = app.textViews.matching(NSPredicate(format:
+			"value CONTAINS %@ OR label CONTAINS %@", "history-after", "history-after")).firstMatch
+		XCTAssertTrue(historicalText.waitForExistence(timeout: 10), "Diff must resolve commit contents instead of the working copy: \(app.debugDescription)")
+		commit.click()
+		XCTAssertTrue(wait(for: NSPredicate(format: "exists == false"), on: file), "Second commit click must collapse the files")
+		app.buttons["tucode.navigator.container.workbench.view.scm"].click()
+		XCTAssertTrue(waitUntilHittable(app.searchFields["tucode.changes.filter"]))
+		XCTAssertFalse(app.buttons["tucode.history.refs"].isHittable)
+		XCTAssertFalse(app.staticTexts["tucode.navigator.section.workbench.scm"].isHittable,
+			"Source Control retains its existing layout without a section switcher")
+		graphNavigator.click()
+		XCTAssertTrue(waitUntilHittable(commit))
+		XCTAssertFalse(app.searchFields["tucode.changes.filter"].isHittable)
+		let refs = app.buttons["tucode.history.refs"]
+		refs.click()
+		XCTAssertTrue(waitForQuickInput(app))
+		let allRefs = app.checkBoxes["All"]
+		XCTAssertTrue(waitUntilHittable(allRefs), app.debugDescription)
+		allRefs.click()
+		XCTAssertTrue(waitForQuickInput(app), "Selecting a ref must leave the multi-select picker open")
+		app.searchFields["tucode.quickInput.field"].typeKey(.return, modifierFlags: [])
+		XCTAssertTrue(waitForQuickInput(app, open: false))
+		XCTAssertTrue(wait(for: NSPredicate(format: "title == %@", "All"), on: refs))
+		XCTAssertTrue(waitUntilHittable(commit))
+		commit.rightClick()
+		let openAll = app.menuItems.matching(NSPredicate(format: "title == %@", "Open All Changes")).firstMatch
+		XCTAssertTrue(openAll.waitForExistence(timeout: 3))
+		openAll.click()
+		let allChangesTab = app.buttons.matching(NSPredicate(format:
+			"identifier BEGINSWITH %@ AND label CONTAINS %@", "tucode.editor.tab.", "history update")).firstMatch
+		XCTAssertTrue(waitUntilHittable(allChangesTab), app.debugDescription)
+		XCTAssertTrue(historicalText.waitForExistence(timeout: 10), "Open All Changes must resolve historical content")
+		XCTAssertFalse(app.staticTexts["tucode.bootstrap.error"].exists, app.debugDescription)
+	}
+
 	func testNativeChangesListMode() throws {
 		continueAfterFailure = false
 		let fixturePath = try XCTUnwrap(ProcessInfo.processInfo.environment["TUCODE_MAC_TEST_WORKSPACE"])
@@ -1738,7 +1850,8 @@ final class EventLoopUITests: XCTestCase {
 
 	private func launchApp(arguments: [String] = [], repository: URL? = nil,
 		userDataDirectory: String? = nil) throws -> XCUIApplication {
-		let appURL = repositoryRoot.appendingPathComponent(".build/macos/Code.app")
+		let appURL = ProcessInfo.processInfo.environment["TUCODE_MAC_TEST_APP"].map { URL(fileURLWithPath: $0) }
+			?? repositoryRoot.appendingPathComponent(".build/macos/Code.app")
 		XCTAssertTrue(FileManager.default.fileExists(atPath: appURL.path), "packaged production app is missing")
 
 		let app = XCUIApplication(url: appURL)
@@ -1753,7 +1866,7 @@ final class EventLoopUITests: XCTestCase {
 		}
 		if let userDataDirectory { app.launchEnvironment["TSCODE_USER_DATA_DIR"] = userDataDirectory }
 		app.launch()
-		XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "XCUIApplication did not launch tucode in the foreground")
+		XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "XCUIApplication did not launch tucode in the foreground\n\(app.debugDescription)")
 		return app
 	}
 

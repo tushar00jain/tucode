@@ -165,12 +165,82 @@ private final class NavigatorContainerItem: NSCollectionViewItem {
 
 /// AppKit owns row hit testing, keyboard navigation and selection. Only semantic operations cross
 /// the bridge; asynchronously resolved children still come from the shared Explorer model.
-private final class NativeOutlineView: NSOutlineView {
+final class NativeOutlineView: NSOutlineView {
 	private(set) var mouseDownItemId: String?
 	var onFilter: (() -> Bool)?
 	var onOpen: ((Int) -> Void)?
 	var onFocus: ((Bool) -> Void)?
 	var onContextMenu: ((Int, NSPoint) -> Void)?
+	var rowRecord: ((Int) -> OutlineRow?)?
+	private var historyFit: NSSize?
+	private var originalHorizontalElasticity: NSScrollView.Elasticity = .automatic
+	private var originalTextColumnMinimum: CGFloat = 10
+	var historyGraphWidth: CGFloat? {
+		didSet {
+			guard oldValue != historyGraphWidth else { return }
+			if oldValue == nil, historyGraphWidth != nil {
+				originalHorizontalElasticity = enclosingScrollView?.horizontalScrollElasticity ?? .automatic
+				originalTextColumnMinimum = outlineTableColumn?.minWidth ?? 10
+			}
+			enclosingScrollView?.horizontalScrollElasticity = historyGraphWidth == nil ? originalHorizontalElasticity : .none
+			outlineTableColumn?.minWidth = historyGraphWidth == nil ? originalTextColumnMinimum : 0
+			historyFit = nil
+			needsLayout = true
+		}
+	}
+
+	override func layout() {
+		if let graphWidth = historyGraphWidth, let scroll = enclosingScrollView,
+			let graphColumn = tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("history-graph")) {
+			let viewport = scroll.contentView.bounds.width
+			let fit = NSSize(width: viewport, height: graphWidth)
+			if viewport > 0 && historyFit != fit {
+				historyFit = fit
+				// The geometry remains uncapped; the viewport clips exceptionally wide graphs.
+				graphColumn.width = min(graphWidth, max(0, viewport - (outlineTableColumn?.minWidth ?? 0)))
+				setFrameSize(NSSize(width: viewport, height: frame.height))
+				sizeLastColumnToFit()
+				// Source-list margins also contribute to native minimum width.
+				let overflow = max(0, frame.width - viewport)
+				if overflow > 0 {
+					graphColumn.width = max(0, graphColumn.width - overflow)
+					setFrameSize(NSSize(width: viewport, height: frame.height))
+					sizeLastColumnToFit()
+				}
+			}
+			if scroll.contentView.bounds.minX != 0 {
+				scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.minY))
+			}
+		}
+		super.layout()
+	}
+
+	override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
+		var frame = super.frameOfCell(atColumn: column, row: row)
+		guard historyGraphWidth != nil, let record = rowRecord?(row), let graph = record.graph else { return frame }
+		let graphIndex = self.column(withIdentifier: NSUserInterfaceItemIdentifier("history-graph"))
+		if column == graphIndex { frame.size.width = graph.width }
+		else {
+			// The graph replaces the commit ancestor's indentation. Keep one native
+			// disclosure slot per child level, shared by sibling file/folder icons.
+			let indent = CGFloat(max(0, level(forRow: row))) * indentationPerLevel
+			let x = super.frameOfCell(atColumn: graphIndex, row: row).minX + graph.width + indent
+			frame = NSRect(x: x, y: frame.minY, width: max(0, frame.maxX - x), height: frame.height)
+		}
+		return frame
+	}
+
+	override func frameOfOutlineCell(atRow row: Int) -> NSRect {
+		let record = rowRecord?(row)
+		if record?.kind == "history-commit" || record?.kind == "history-more" { return .zero }
+		var frame = super.frameOfOutlineCell(atRow: row)
+		if historyGraphWidth != nil, let graph = record?.graph, !frame.isEmpty {
+			let graphIndex = column(withIdentifier: NSUserInterfaceItemIdentifier("history-graph"))
+			frame.origin.x = super.frameOfCell(atColumn: graphIndex, row: row).minX + graph.width
+				+ CGFloat(max(0, level(forRow: row))) * indentationPerLevel - frame.width
+		}
+		return frame
+	}
 
 	private func requestContextMenu(for event: NSEvent) {
 		onContextMenu?(row(at: convert(event.locationInWindow, from: nil)), event.locationInWindow)
@@ -215,6 +285,9 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 	private var changesFilter: NSSearchField!
 	private var changesInputRevision = 0
 	private let searchControls = NativeSearchControls()
+	private let historyControls = NativeHistoryControls()
+	private var historyState: NativeHistoryState?
+	private var navigatorOutlineIntercellSpacing = NSSize.zero
 	private var window: NSWindow!
 	private var errorLabel: NSTextField!
 	private var quickInputField: NativeQuickInputField!
@@ -492,10 +565,15 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		navigatorOutline.headerView = nil
 		navigatorOutline.delegate = self
 		navigatorOutline.dataSource = navigatorOutlineData
+		navigatorOutline.rowRecord = { [weak self] row in
+			guard let self, let id = self.outlineId(self.navigatorOutline.item(atRow: row)) else { return nil }
+			return self.navigatorOutlineData.rows[id]
+		}
 		navigatorOutline.style = .sourceList
 		navigatorOutline.backgroundColor = .clear
 		navigatorOutline.usesAlternatingRowBackgroundColors = false
 		navigatorOutline.rowSizeStyle = .small
+		navigatorOutlineIntercellSpacing = navigatorOutline.intercellSpacing
 		navigatorOutline.allowsMultipleSelection = false
 		navigatorOutline.indentationPerLevel = 14
 		navigatorOutline.indentationMarkerFollowsCell = true
@@ -521,6 +599,11 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			return true
 		}
 		navigatorOutline.setAccessibilityIdentifier("tucode.navigator.outline")
+		let graphColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("history-graph"))
+		graphColumn.isHidden = true
+		graphColumn.resizingMask = []
+		graphColumn.minWidth = 0
+		navigatorOutline.addTableColumn(graphColumn)
 		let outlineColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("outline"))
 		outlineColumn.resizingMask = .autoresizingMask
 		navigatorOutline.addTableColumn(outlineColumn)
@@ -551,17 +634,20 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			guard let self else { return }
 			self.window.makeFirstResponder(self.navigatorOutline)
 		}
+		historyControls.onAction = { [weak self] id in self?.sendNavigatorEvent(type: "history-action", id: id) }
 		let sidebarContent = NSStackView(views: [navigatorContainerBar, navigatorSectionScroll,
-			searchControls, outlineScroll, changesFilter])
+			searchControls, historyControls, outlineScroll, changesFilter])
 		sidebarContent.orientation = .vertical
 		sidebarContent.alignment = .centerX
 		sidebarContent.spacing = 0
 		sidebarContent.setCustomSpacing(8, after: navigatorContainerBar)
+		sidebarContent.setCustomSpacing(6, after: historyControls)
 		sidebarContent.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
 		sidebarContent.translatesAutoresizingMaskIntoConstraints = false
 		navigatorSectionScroll.widthAnchor.constraint(equalTo: sidebarContent.widthAnchor, constant: -16).isActive = true
 		changesFilter.widthAnchor.constraint(equalTo: sidebarContent.widthAnchor, constant: -16).isActive = true
 		searchControls.widthAnchor.constraint(equalTo: sidebarContent.widthAnchor, constant: -16).isActive = true
+		historyControls.widthAnchor.constraint(equalTo: sidebarContent.widthAnchor, constant: -16).isActive = true
 		navigatorSectionHeight = navigatorSectionScroll.heightAnchor.constraint(equalToConstant: 0)
 		navigatorSectionHeight.isActive = true
 		outlineScroll.widthAnchor.constraint(equalTo: sidebarContent.widthAnchor, constant: -16).isActive = true
@@ -638,6 +724,7 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 		case "files": return "folder"
 		case "search": return "magnifyingglass"
 		case "source-control": return "tucode.changes"
+		case "git-commit": return "point.3.connected.trianglepath.dotted"
 		case "graph": return "point.3.connected.trianglepath.dotted"
 		default: return "square.grid.2x2"
 		}
@@ -1007,6 +1094,14 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			if changesFilter.currentEditor() === window.firstResponder || searchControls.currentEditor != nil { window.makeFirstResponder(navigatorOutline) }
 		}
 		searchControls.apply(snapshot.search)
+		historyState = snapshot.history
+		historyControls.apply(snapshot.history)
+		if let column = navigatorOutline.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("history-graph")) {
+			column.isHidden = snapshot.history == nil
+		}
+		navigatorOutline.historyGraphWidth = snapshot.history.map { CGFloat($0.graphWidth) }
+		navigatorOutline.intercellSpacing = snapshot.history == nil ? navigatorOutlineIntercellSpacing
+			: NSSize(width: navigatorOutlineIntercellSpacing.width, height: 0)
 		changesFilter.isHidden = navigatorFilterPrefix == nil
 		let filterSurface = navigatorFilterPrefix == "scm" ? "changes" : navigatorFilterPrefix ?? "changes"
 		changesFilter.setAccessibilityIdentifier("tucode.\(filterSurface).filter")
@@ -1078,6 +1173,16 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 
 	func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
 		guard let id = outlineId(item), let record = navigatorOutlineData.rows[id] else { return nil }
+		if tableColumn?.identifier.rawValue == "history-graph" {
+			let identifier = NSUserInterfaceItemIdentifier("history-graph-cell")
+			let graph = outlineView.makeView(withIdentifier: identifier, owner: self) as? NativeHistoryGraphView ?? NativeHistoryGraphView()
+			graph.identifier = identifier
+			graph.graph = record.graph
+			return graph
+		}
+		if record.kind == "history-more", historyState?.pageOnScroll == true, historyState?.loading == false {
+			DispatchQueue.main.async { [weak self] in self?.sendNavigatorEvent(type: "history-action", id: "page") }
+		}
 		let identifier = NSUserInterfaceItemIdentifier("outline-row")
 		let cell = outlineView.makeView(withIdentifier: identifier, owner: self) as? NavigatorOutlineCell ?? {
 			let value = NavigatorOutlineCell()
@@ -1097,10 +1202,11 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			value.addSubview(icon)
 			value.addSubview(label)
 			value.addSubview(value.statusField)
+			value.iconWidthConstraint = icon.widthAnchor.constraint(equalToConstant: 16)
 			NSLayoutConstraint.activate([
 				icon.leadingAnchor.constraint(equalTo: value.leadingAnchor, constant: 2),
 				icon.centerYAnchor.constraint(equalTo: value.centerYAnchor),
-				icon.widthAnchor.constraint(equalToConstant: 16),
+				value.iconWidthConstraint!,
 				icon.heightAnchor.constraint(equalToConstant: 16),
 				label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
 				label.trailingAnchor.constraint(equalTo: value.statusField.leadingAnchor, constant: -6),
@@ -1110,15 +1216,17 @@ final class WorkspaceWindowController: NSObject, NSWindowDelegate, NSTableViewDe
 			])
 			return value
 		}()
+		cell.iconWidthConstraint?.constant = record.kind == "history-commit" || record.kind == "history-more" ? 0 : 16
+		cell.toolTip = record.detail
 		cell.projectedText = record.render
-		cell.sourcePreview = record.kind == "search-match"
+		cell.sourcePreview = record.kind == "search-match" || record.kind == "history-commit"
 		cell.textField?.setAccessibilityIdentifier("tucode.navigator.outline.row.\(id)")
 		cell.statusField.stringValue = record.status ?? ""
 		cell.statusField.textColor = record.statusColor.map(nsColor) ?? .secondaryLabelColor
 		cell.statusField.setAccessibilityIdentifier("tucode.navigator.outline.status.\(id)")
 		cell.projectedFont = .systemFont(ofSize: 12, weight: record.expandable ? .medium : .regular)
 		cell.keepProjectedTextVisible()
-		cell.imageView?.image = cell.sourcePreview ? nil : record.icon == "diff" ? changesDocumentImage()
+		cell.imageView?.image = cell.sourcePreview || record.kind == "history-commit" || record.kind == "history-more" ? nil : record.icon == "diff" ? changesDocumentImage()
 			: NativeFileIcon.image(resource: record.resource, label: record.render.accessibleLabel,
 				isDirectory: record.isDirectory ?? record.expandable, pointSize: 13, theme: record.fileIconTheme, languageID: record.languageId)
 		cell.imageView?.contentTintColor = record.icon == "diff" ? .systemBlue : nil

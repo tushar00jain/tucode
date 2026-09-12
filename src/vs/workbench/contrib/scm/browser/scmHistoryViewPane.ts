@@ -10,7 +10,7 @@ import { IContextKey, IContextKeyService } from '../../../../platform/contextkey
 import { ColorIdentifier } from '../../../../platform/theme/common/colorRegistry.js';
 import { toISCMHistoryItemViewModelArray } from './scmHistory.js';
 import { getProviderKey } from './util.js';
-import { ISCMHistoryItemRef, ISCMHistoryProvider, SCMHistoryItemViewModelTreeElement } from '../common/history.js';
+import { ISCMHistoryItem, ISCMHistoryItemRef, ISCMHistoryProvider, SCMHistoryItemViewModelTreeElement } from '../common/history.js';
 import { ISCMRepository, ISCMService, ISCMViewService, ViewMode } from '../common/scm.js';
 import { ContextKeys } from './scmViewPane.js';
 import { Event } from '../../../../base/common/event.js';
@@ -22,6 +22,8 @@ import { IExtensionService } from '../../../services/extensions/common/extension
 type HistoryItemRefsFilter = 'all' | 'auto' | string[];
 
 type RepositoryState = {
+	historyItems: ISCMHistoryItem[];
+	exhausted: boolean;
 	viewModels: SCMHistoryItemViewModelTreeElement[];
 	historyItemsFilter: ISCMHistoryItemRef[];
 	mergeBase: string | undefined;
@@ -41,6 +43,7 @@ export class SCMHistoryViewModel extends Disposable {
 	readonly onDidChangeHistoryItemsFilter = observableSignal(this);
 	readonly isViewModelEmpty = observableValue(this, false);
 
+	private _requestVersion = 0;
 	private readonly _repositoryState = new Map<ISCMRepository, RepositoryState>();
 	private readonly _repositoryFilterState = new Map<string, HistoryItemRefsFilter>();
 
@@ -104,6 +107,7 @@ export class SCMHistoryViewModel extends Disposable {
 	}
 
 	clearRepositoryState(): void {
+		this._requestVersion++;
 		const repository = this.repository.get();
 		if (!repository) {
 			return;
@@ -145,6 +149,11 @@ export class SCMHistoryViewModel extends Disposable {
 			.find(viewModel => viewModel.historyItemViewModel.historyItem.id === historyItemRef?.revision);
 	}
 
+	hasMoreHistoryItems(): boolean {
+		const repository = this.repository.get();
+		return !!repository && this._repositoryState.get(repository)?.exhausted !== true;
+	}
+
 	loadMore(cursor?: string): void {
 		const repository = this.repository.get();
 		if (!repository) {
@@ -160,6 +169,7 @@ export class SCMHistoryViewModel extends Disposable {
 	}
 
 	async getHistoryItems(): Promise<SCMHistoryItemViewModelTreeElement[]> {
+		const requestVersion = this._requestVersion;
 		const repository = this.repository.get();
 		const historyProvider = repository?.provider.historyProvider.get();
 		const historyItemRef = historyProvider?.historyItemRef.get();
@@ -174,11 +184,8 @@ export class SCMHistoryViewModel extends Disposable {
 		let state = this._repositoryState.get(repository);
 
 		if (!state || state.loadMore !== false) {
-			const historyItems = state?.viewModels
-				.filter(vm =>
-					vm.historyItemViewModel.kind !== 'incoming-changes' &&
-					vm.historyItemViewModel.kind !== 'outgoing-changes')
-				.map(vm => vm.historyItemViewModel.historyItem) ?? [];
+			const historyItems = [...(state?.historyItems ?? [])];
+			let exhausted = false;
 
 			const historyItemRefs = state?.historyItemsFilter ??
 				await this._resolveHistoryItemFilter(repository, historyProvider);
@@ -187,10 +194,12 @@ export class SCMHistoryViewModel extends Disposable {
 			const historyItemRefIds = historyItemRefs.map(ref => ref.revision ?? ref.id);
 
 			do {
-				// Fetch the next page of history items
-				historyItems.push(...(await historyProvider.provideHistoryItems({
-					historyItemRefs: historyItemRefIds, limit, skip: historyItems.length
-				}) ?? []));
+				const page = await historyProvider.provideHistoryItems({ historyItemRefs: historyItemRefIds, limit, skip: historyItems.length }) ?? [];
+				if (this._store.isDisposed || requestVersion !== this._requestVersion || repository !== this.repository.get()) { return []; }
+				const known = new Set(historyItems.map(item => item.id));
+				const added = page.filter(item => !known.has(item.id));
+				historyItems.push(...added);
+				if (added.length === 0 || page.length < limit) { exhausted = true; break; }
 			} while (typeof state?.loadMore === 'string' && !historyItems.find(item => item.id === state?.loadMore));
 
 			// Compute the merge base
@@ -226,7 +235,8 @@ export class SCMHistoryViewModel extends Disposable {
 					type: 'historyItemViewModel'
 				}) satisfies SCMHistoryItemViewModelTreeElement);
 
-			state = { historyItemsFilter: historyItemRefs, viewModels, mergeBase, loadMore: false };
+			if (this._store.isDisposed || requestVersion !== this._requestVersion || repository !== this.repository.get()) { return []; }
+			state = { historyItems, exhausted, historyItemsFilter: historyItemRefs, viewModels, mergeBase, loadMore: false };
 			this._repositoryState.set(repository, state);
 
 			this._scmHistoryItemCountCtx.set(viewModels.length);

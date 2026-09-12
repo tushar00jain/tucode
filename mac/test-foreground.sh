@@ -95,6 +95,31 @@ cp "$REPOSITORY_ROOT/test/fixtures/mac-changes/settings.json" "$MAC_TEST_WORKSPA
 cp "$REPOSITORY_ROOT/test/fixtures/mac-changes/changes.code-workspace" "$MAC_TEST_WORKSPACE/changes/changes.code-workspace"
 cp "$REPOSITORY_ROOT/test/fixtures/mac-changes/list.code-workspace" "$MAC_TEST_WORKSPACE/changes/list.code-workspace"
 
+# Historical editor contents must differ from the working copy.
+MAC_HISTORY_ROOT="$MAC_TEST_WORKSPACE/history"
+mkdir -p "$MAC_HISTORY_ROOT/.vscode"
+git -C "$MAC_HISTORY_ROOT" init -q
+git -C "$MAC_HISTORY_ROOT" config user.name Fixture
+git -C "$MAC_HISTORY_ROOT" config user.email fixture@example.invalid
+# A linear ancestor verifies the graph narrows again after the branch converges.
+git -C "$MAC_HISTORY_ROOT" commit --allow-empty -qm 'history seed'
+printf '%s\n' '{"scm.defaultViewMode":"list","scm.graph.pageOnScroll":false,"editor.accessibilitySupport":"on"}' > "$MAC_HISTORY_ROOT/.vscode/settings.json"
+printf '%s\n' 'history-before' > "$MAC_HISTORY_ROOT/revision.txt"
+git -C "$MAC_HISTORY_ROOT" add .
+git -C "$MAC_HISTORY_ROOT" commit -qm 'history base'
+printf '%s\n' 'history-after' > "$MAC_HISTORY_ROOT/revision.txt"
+git -C "$MAC_HISTORY_ROOT" commit -qam 'history update'
+MAC_HISTORY_BRANCH=$(git -C "$MAC_HISTORY_ROOT" symbolic-ref --short HEAD)
+git -C "$MAC_HISTORY_ROOT" checkout -qb history-topic HEAD~1
+printf '%s\n' 'branch-content' > "$MAC_HISTORY_ROOT/branch.txt"
+mkdir -p "$MAC_HISTORY_ROOT/branch-dir/inside"
+printf '%s\n' 'nested-branch-content' > "$MAC_HISTORY_ROOT/branch-dir/inside/nested.txt"
+git -C "$MAC_HISTORY_ROOT" add branch.txt branch-dir
+git -C "$MAC_HISTORY_ROOT" commit -qm 'history branch'
+git -C "$MAC_HISTORY_ROOT" checkout -q "$MAC_HISTORY_BRANCH"
+git -C "$MAC_HISTORY_ROOT" merge -q --no-ff -m 'history merge' history-topic
+printf '%s\n' 'working-copy-only' > "$MAC_HISTORY_ROOT/revision.txt"
+
 mkdir -p "$MAC_TEST_WORKSPACE/native-explorer/.vscode" "$MAC_TEST_WORKSPACE/native-explorer/mac"
 cp "$REPOSITORY_ROOT/test/fixtures/mac-explorer/settings.json" "$MAC_TEST_WORKSPACE/native-explorer/.vscode/settings.json"
 for MAC_TEST_FILE in hidden-native.txt bundle.ts bundle.js z-native.txt; do

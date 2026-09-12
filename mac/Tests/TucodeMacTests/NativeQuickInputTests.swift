@@ -14,6 +14,25 @@ final class NativeQuickInputTests: XCTestCase {
 			])
 	}
 
+	func testMultiSelectUsesCheckboxStateAndExplicitAcceptance() {
+		let field = NativeQuickInputField()
+		var intents: [QuickInputIntent] = []
+		field.onIntent = { intents.append($0) }
+		var state = snapshot()
+		state.canSelectMany = true
+		field.apply(state)
+		let cell = field.tableView(NSTableView(), viewFor: nil, row: 1)!
+		let checkbox = cell.subviews.compactMap { $0 as? NSButton }.first
+		XCTAssertNotNil(checkbox)
+		XCTAssertEqual(checkbox?.state, .off)
+		field.activateRow(1)
+		XCTAssertEqual(intents.last?.eventType, "select")
+		XCTAssertEqual(intents.last?.selected, true)
+		XCTAssertEqual(intents.last?.id, "file")
+		XCTAssertTrue(field.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
+		XCTAssertEqual(intents.last?.eventType, "accept")
+	}
+
 	func testPaintPreservesServiceOrderAndDoesNotSendInput() {
 		let field = NativeQuickInputField()
 		var intents: [QuickInputIntent] = []

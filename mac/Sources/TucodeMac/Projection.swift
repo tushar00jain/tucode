@@ -7,6 +7,7 @@ struct QuickInputRow: Codable {
 	let description: String?
 	let detail: String?
 	let focused: Bool
+	var selected: Bool? = nil
 }
 
 struct QuickInputSnapshot: Codable {
@@ -20,6 +21,7 @@ struct QuickInputSnapshot: Codable {
 	let hideInput: Bool
 	let hideList: Bool
 	let rows: [QuickInputRow]
+	var canSelectMany: Bool? = nil
 }
 
 struct QuickInputUpdate: Codable {
@@ -56,6 +58,7 @@ struct NavigatorSnapshot: Codable {
 	let outline: NativeOutlineUpdate
 	let filter: NavigatorFilter?
 	let search: NativeSearchState?
+	let history: NativeHistoryState?
 }
 
 struct NavigatorFilter: Codable {
@@ -96,6 +99,8 @@ struct RenderRecords: Codable, Equatable {
 }
 
 struct OutlineRow: Codable, Equatable {
+	var graph: NativeHistoryGraph? = nil
+	var detail: String? = nil
 	let id: String
 	let kind: String?
 	let resource: String?
@@ -124,6 +129,7 @@ struct KeyInputIntent: Encodable {
 }
 
 struct QuickInputIntent: Encodable {
+	var selected: Bool? = nil
 	var selection: [Int]? = nil
 	let sessionId: Int
 	let eventType: String

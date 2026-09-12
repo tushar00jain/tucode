@@ -470,6 +470,7 @@ class NativeQuickPick<T extends IQuickPickItem> extends Disposable implements Om
 	}
 
 	set selectedItems(items: ReadonlyArray<T>) {
+		if (items.length === this._selectedItems.length && items.every((item, index) => item === this._selectedItems[index])) { return; }
 		this._selectedItems = [...items];
 		this.repaint();
 		this._onDidChangeSelection.fire([...this._selectedItems]);

@@ -9,7 +9,7 @@ import { badgeBackground, chartsBlue, chartsPurple, foreground } from '../../../
 import { asCssVariable, ColorIdentifier, registerColor } from '../../../../platform/theme/common/colorUtils.js';
 import { ISCMHistoryItem, ISCMHistoryItemGraphNode, ISCMHistoryItemRef, ISCMHistoryItemViewModel, SCMIncomingHistoryItemId, SCMOutgoingHistoryItemId } from '../common/history.js';
 import { rot } from '../../../../base/common/numbers.js';
-import { $, svgElem } from '../../../../base/browser/dom.js';
+import { $ } from '../../../../base/browser/dom.js';
 import { PANEL_BACKGROUND } from '../../../common/theme.js';
 import { DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { IMarkdownString, isEmptyMarkdownString, isMarkdownString, MarkdownString } from '../../../../base/common/htmlContent.js';
@@ -67,50 +67,23 @@ function getLabelColorIdentifier(historyItem: ISCMHistoryItem, colorMap: Map<str
 	return undefined;
 }
 
-function createPath(colorIdentifier: string, strokeWidth = 1): SVGPathElement {
-	const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-	path.setAttribute('fill', 'none');
-	path.setAttribute('stroke-width', `${strokeWidth}px`);
-	path.setAttribute('stroke-linecap', 'round');
-	path.style.stroke = asCssVariable(colorIdentifier);
-
-	return path;
+export interface SCMHistoryGraphShape {
+	kind: 'path' | 'circle';
+	d?: string;
+	cx?: number; cy?: number; radius?: number;
+	color?: string; fill?: string; strokeWidth: number; dashed?: boolean;
 }
-
-function drawCircle(index: number, radius: number, strokeWidth: number, colorIdentifier?: string): SVGCircleElement {
-	const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-	circle.setAttribute('cx', `${SWIMLANE_WIDTH * (index + 1)}`);
-	circle.setAttribute('cy', `${SWIMLANE_WIDTH}`);
-	circle.setAttribute('r', `${radius}`);
-
-	circle.style.strokeWidth = `${strokeWidth}px`;
-	if (colorIdentifier) {
-		circle.style.fill = asCssVariable(colorIdentifier);
-	}
-
-	return circle;
+export interface SCMHistoryGraphGeometry { width: number; height: number; shapes: SCMHistoryGraphShape[]; }
+function createPath(color: string, strokeWidth = 1): SCMHistoryGraphShape { return { kind: 'path', color, strokeWidth }; }
+function drawCircle(index: number, radius: number, strokeWidth: number, fill?: string): SCMHistoryGraphShape {
+	return { kind: 'circle', cx: SWIMLANE_WIDTH * (index + 1), cy: SWIMLANE_WIDTH, radius, strokeWidth, fill };
 }
-
-function drawDashedCircle(index: number, radius: number, strokeWidth: number, colorIdentifier: string): SVGCircleElement {
-	const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-	circle.setAttribute('cx', `${SWIMLANE_WIDTH * (index + 1)}`);
-	circle.setAttribute('cy', `${SWIMLANE_WIDTH}`);
-	circle.setAttribute('r', `${CIRCLE_RADIUS + 1}`);
-
-	circle.style.stroke = asCssVariable(colorIdentifier);
-	circle.style.strokeWidth = `${strokeWidth}px`;
-	circle.style.strokeDasharray = '4,2';
-
-	return circle;
+function drawDashedCircle(index: number, radius: number, strokeWidth: number, color: string): SCMHistoryGraphShape {
+	return { ...drawCircle(index, radius, strokeWidth), color, dashed: true };
 }
-
-function drawVerticalLine(x1: number, y1: number, y2: number, color: string, strokeWidth = 1): SVGPathElement {
-	const path = createPath(color, strokeWidth);
-	path.setAttribute('d', `M ${x1} ${y1} V ${y2}`);
-
-	return path;
+function drawVerticalLine(x1: number, y1: number, y2: number, color: string, strokeWidth = 1): SCMHistoryGraphShape {
+	return { ...createPath(color, strokeWidth), d: `M ${x1} ${y1} V ${y2}` };
 }
-
 function findLastIndex(nodes: ISCMHistoryItemGraphNode[], id: string): number {
 	for (let i = nodes.length - 1; i >= 0; i--) {
 		if (nodes[i].id === id) {
@@ -121,9 +94,8 @@ function findLastIndex(nodes: ISCMHistoryItemGraphNode[], id: string): number {
 	return -1;
 }
 
-export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemViewModel): SVGElement {
-	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-	svg.classList.add('graph');
+export function getSCMHistoryGraphGeometry(historyItemViewModel: ISCMHistoryItemViewModel): SCMHistoryGraphGeometry {
+	const shapes: SCMHistoryGraphShape[] = [];
 
 	const historyItem = historyItemViewModel.historyItem;
 	const inputSwimlanes = historyItemViewModel.inputSwimlanes;
@@ -157,8 +129,8 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 				// Draw -
 				d.push(`H ${SWIMLANE_WIDTH * (circleIndex + 1)}`);
 
-				path.setAttribute('d', d.join(' '));
-				svg.append(path);
+				path.d = d.join(' ');
+				shapes.push(path);
 			} else {
 				outputSwimlaneIndex++;
 			}
@@ -169,7 +141,7 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 				if (index === outputSwimlaneIndex) {
 					// Draw |
 					const path = drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, SWIMLANE_HEIGHT, color);
-					svg.append(path);
+					shapes.push(path);
 				} else {
 					const d: string[] = [];
 					const path = createPath(color);
@@ -190,8 +162,8 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 					// Draw |
 					d.push(`V ${SWIMLANE_HEIGHT}`);
 
-					path.setAttribute('d', d.join(' '));
-					svg.append(path);
+					path.d = d.join(' ');
+					shapes.push(path);
 				}
 
 				outputSwimlaneIndex++;
@@ -218,75 +190,116 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 		d.push(`M ${SWIMLANE_WIDTH * parentOutputIndex} ${SWIMLANE_HEIGHT / 2}`);
 		d.push(`H ${SWIMLANE_WIDTH * (circleIndex + 1)} `);
 
-		path.setAttribute('d', d.join(' '));
-		svg.append(path);
+		path.d = d.join(' ');
+		shapes.push(path);
 	}
 
 	// Draw | to *
 	if (inputIndex !== -1) {
 		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), 0, SWIMLANE_HEIGHT / 2, inputSwimlanes[inputIndex].color);
-		svg.append(path);
+		shapes.push(path);
 	}
 
 	// Draw | from *
 	if (historyItem.parentIds.length > 0) {
 		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), SWIMLANE_HEIGHT / 2, SWIMLANE_HEIGHT, circleColor);
-		svg.append(path);
+		shapes.push(path);
 	}
 
 	// Draw *
 	if (historyItemViewModel.kind === 'HEAD') {
 		// HEAD
 		const outerCircle = drawCircle(circleIndex, CIRCLE_RADIUS + 3, CIRCLE_STROKE_WIDTH, circleColor);
-		svg.append(outerCircle);
+		shapes.push(outerCircle);
 
 		const innerCircle = drawCircle(circleIndex, CIRCLE_STROKE_WIDTH, CIRCLE_RADIUS);
-		svg.append(innerCircle);
+		shapes.push(innerCircle);
 	} else if (historyItemViewModel.kind === 'incoming-changes' || historyItemViewModel.kind === 'outgoing-changes') {
 		// Incoming/Outgoing changes
 		const outerCircle = drawCircle(circleIndex, CIRCLE_RADIUS + 3, CIRCLE_STROKE_WIDTH, circleColor);
-		svg.append(outerCircle);
+		shapes.push(outerCircle);
 
 		const innerCircle = drawCircle(circleIndex, CIRCLE_RADIUS + 1, CIRCLE_STROKE_WIDTH + 1);
-		svg.append(innerCircle);
+		shapes.push(innerCircle);
 
 		const dashedCircle = drawDashedCircle(circleIndex, CIRCLE_RADIUS + 1, CIRCLE_STROKE_WIDTH - 1, circleColor);
-		svg.append(dashedCircle);
+		shapes.push(dashedCircle);
 	} else {
 		if (historyItem.parentIds.length > 1) {
 			// Multi-parent node
 			const circleOuter = drawCircle(circleIndex, CIRCLE_RADIUS + 2, CIRCLE_STROKE_WIDTH, circleColor);
-			svg.append(circleOuter);
+			shapes.push(circleOuter);
 
 			const circleInner = drawCircle(circleIndex, CIRCLE_RADIUS - 1, CIRCLE_STROKE_WIDTH, circleColor);
-			svg.append(circleInner);
+			shapes.push(circleInner);
 		} else {
 			// Node
 			const circle = drawCircle(circleIndex, CIRCLE_RADIUS + 1, CIRCLE_STROKE_WIDTH, circleColor);
-			svg.append(circle);
+			shapes.push(circle);
 		}
 	}
 
-	// Set dimensions
-	svg.style.height = `${SWIMLANE_HEIGHT}px`;
-	svg.style.width = `${SWIMLANE_WIDTH * (Math.max(inputSwimlanes.length, outputSwimlanes.length, 1) + 1)}px`;
-
-	return svg;
+	return { height: SWIMLANE_HEIGHT, width: SWIMLANE_WIDTH * (Math.max(inputSwimlanes.length, outputSwimlanes.length, 1) + 1), shapes };
 }
 
-export function renderSCMHistoryGraphPlaceholder(columns: ISCMHistoryItemGraphNode[], highlightIndex?: number): HTMLElement {
-	const elements = svgElem('svg', {
-		style: { height: `${SWIMLANE_HEIGHT}px`, width: `${SWIMLANE_WIDTH * (columns.length + 1)}px`, }
-	});
-
-	// Draw |
-	for (let index = 0; index < columns.length; index++) {
-		const strokeWidth = index === highlightIndex ? 3 : 1;
-		const path = drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, SWIMLANE_HEIGHT, columns[index].color, strokeWidth);
-		elements.root.append(path);
+export function getSCMHistoryGraphPlaceholderGeometry(columns: ISCMHistoryItemGraphNode[], highlightIndex?: number): SCMHistoryGraphGeometry {
+	return { height: SWIMLANE_HEIGHT, width: SWIMLANE_WIDTH * (columns.length + 1),
+		shapes: columns.map((column, index) => drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, SWIMLANE_HEIGHT, column.color, index === highlightIndex ? 3 : 1)) };
+}
+function renderGraphGeometry(geometry: SCMHistoryGraphGeometry): SVGElement {
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.classList.add('graph');
+	svg.style.height = `${geometry.height}px`;
+	svg.style.width = `${geometry.width}px`;
+	for (const shape of geometry.shapes) {
+		const element = document.createElementNS('http://www.w3.org/2000/svg', shape.kind);
+		element.style.strokeWidth = `${shape.strokeWidth}px`;
+		if (shape.kind === 'path') {
+			element.setAttribute('d', shape.d!);
+			element.setAttribute('fill', 'none');
+			element.setAttribute('stroke-linecap', 'round');
+		} else {
+			element.setAttribute('cx', `${shape.cx}`);
+			element.setAttribute('cy', `${shape.cy}`);
+			element.setAttribute('r', `${shape.radius}`);
+		}
+		if (shape.fill) { element.style.fill = asCssVariable(shape.fill); }
+		if (shape.color) { element.style.stroke = asCssVariable(shape.color); }
+		if (shape.dashed) { element.style.strokeDasharray = '4,2'; }
+		svg.append(element);
 	}
+	return svg;
+}
+export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemViewModel): SVGElement {
+	return renderGraphGeometry(getSCMHistoryGraphGeometry(historyItemViewModel));
+}
+export function renderSCMHistoryGraphPlaceholder(columns: ISCMHistoryItemGraphNode[], highlightIndex?: number): HTMLElement {
+	return renderGraphGeometry(getSCMHistoryGraphPlaceholderGeometry(columns, highlightIndex)) as unknown as HTMLElement;
+}
 
-	return elements.root;
+/** Prepare the graph's SVG quarter arcs as cubic paint commands for native canvases. */
+export function scmHistoryGraphPathCommands(d: string): number[][] {
+	const tokens = d.trim().split(/\s+/);
+	const commands: number[][] = [];
+	let x = 0, y = 0;
+	const number = () => Number(tokens.shift());
+	while (tokens.length) {
+		const command = tokens.shift();
+		if (command === 'M') { x = number(); y = number(); commands.push([0, x, y]); }
+		else if (command === 'H') { x = number(); commands.push([1, x, y]); }
+		else if (command === 'V') { y = number(); commands.push([1, x, y]); }
+		else if (command === 'A') {
+			const rx = number(), ry = number(); number(); number(); const sweep = number();
+			const nx = number(), ny = number();
+			const centerAtStartX = (sweep === 1) === ((nx - x) * (ny - y) > 0);
+			const cx = centerAtStartX ? x : nx, cy = centerAtStartX ? ny : y;
+			const direction = sweep === 1 ? 1 : -1, k = 4 * (Math.sqrt(2) - 1) / 3;
+			commands.push([2, x - direction * (y - cy) * rx / ry * k, y + direction * (x - cx) * ry / rx * k,
+				nx + direction * (ny - cy) * rx / ry * k, ny - direction * (nx - cx) * ry / rx * k, nx, ny]);
+			x = nx; y = ny;
+		} else { throw new Error(`Unsupported history graph path command: ${command}`); }
+	}
+	return commands;
 }
 
 export function toISCMHistoryItemViewModelArray(
@@ -379,10 +392,12 @@ export function toISCMHistoryItemViewModelArray(
 			compareHistoryItemRefs(ref1, ref2, currentHistoryItemRef, currentHistoryItemRemoteRef, currentHistoryItemBaseRef));
 
 		viewModels.push({
-			historyItem: {
-				...historyItem,
-				references
-			},
+			// Preserve lazy provider metadata while isolating synthetic parent rewrites.
+			historyItem: Object.defineProperties(Object.create(Object.getPrototypeOf(historyItem)), {
+				...Object.getOwnPropertyDescriptors(historyItem),
+				parentIds: { value: [...historyItem.parentIds], writable: true, enumerable: true, configurable: true },
+				references: { value: references, writable: true, enumerable: true, configurable: true }
+			}) as ISCMHistoryItem,
 			kind,
 			inputSwimlanes,
 			outputSwimlanes

@@ -14,6 +14,7 @@ enum NativeOutlineText {
 			let text = sourcePreview ? run.text : run.text.unicodeScalars.filter { !(0xE000...0xF8FF).contains(Int($0.value)) }.map(String.init).joined()
 			var attributes = base
 			if sourcePreview {
+				if run.style.bold == true { attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
 				if let fg = run.style.fg { attributes[.foregroundColor] = color(fg) }
 				if let bg = run.style.bg { attributes[.backgroundColor] = color(bg) }
 				if run.style.strikethrough == true { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
@@ -48,6 +49,7 @@ enum NativeOutlineText {
 /// row retains match emphasis and the adaptive filename foreground stays readable.
 final class NavigatorOutlineCell: NSTableCellView {
 	let statusField = NSTextField(labelWithString: "")
+	var iconWidthConstraint: NSLayoutConstraint?
 	var projectedText: RenderRecords?
 	var projectedFont: NSFont = .systemFont(ofSize: 12)
 	var sourcePreview = false
