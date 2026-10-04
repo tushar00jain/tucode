@@ -14,7 +14,7 @@ mac/capture-visual-comparison.sh navigator  # optional comparison with Xcode
 ```
 
 Quit an existing Tucode session before rebuilding or testing. The macOS app is named Code; the development bundle is at `.build/macos/Code.app`.
-Edit `App/AppIcon.icon` in Icon Composer to change the application icon. Packaging compiles the icon document into macOS appearance assets and icon metadata; no PNG export is needed.
+Edit `artwork/matrix/tucode-matrix.icon` (relative to the repository root) in Icon Composer to change the application icon. Packaging compiles the icon document into macOS appearance assets and icon metadata; no PNG export is needed.
 Foreground tests use the existing `Automation Signing` identity in `~/Library/Keychains/Automation.keychain-db` and create their own fixtures.
 Set `TUCODE_MAC_ONLY_TESTING` to an XCUITest identifier to select a workflow. There is no background Mac UI test path.
 Visual captures require Screen Recording/Accessibility access and go under `.build/macos/visual-comparisons/`.
